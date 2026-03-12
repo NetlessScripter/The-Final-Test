@@ -1,0 +1,988 @@
+local Players          = game:GetService("Players")
+local RunService       = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local TweenService     = game:GetService("TweenService")
+local LocalPlayer = Players.LocalPlayer
+local PlayerGui   = LocalPlayer.PlayerGui
+local Camera      = workspace.CurrentCamera
+local g = getsynasset or getcustomasset
+local sprintFile    = "sprint_icon.png"
+local adsFile       = "ads_icon.png"
+if not isfile(sprintFile) then
+    writefile(sprintFile,    game:HttpGet("https://raw.githubusercontent.com/NetlessScripter/The-Final-Test/refs/heads/main/IMG_1242.png"))
+end
+if not isfile(adsFile) then
+    writefile(adsFile,       game:HttpGet("https://raw.githubusercontent.com/NetlessScripter/The-Final-Test/refs/heads/main/IMG_1241.png"))
+end
+local sprintTexture    = g(sprintFile)
+local adsTexture       = g(adsFile)
+local Character, HumanoidRootPart, Humanoid, Head
+local function hideCharacterHead()
+    if not Character then return end
+    for _, part in ipairs(Character:GetDescendants()) do
+        if part:IsA("BasePart") and part.Name == "Head" then
+            part.Transparency = 1
+            part.CastShadow   = false
+        elseif part:IsA("Decal") and part.Parent.Name == "Head" then
+            part.Transparency = 1
+        elseif part:IsA("Accessory") then
+            local handle = part:FindFirstChildOfClass("Part")
+                        or part:FindFirstChildOfClass("MeshPart")
+            if handle then
+                handle.Transparency = 1
+                handle.CastShadow   = false
+            end
+        elseif part:IsA("SpecialMesh") and part.Parent.Name == "Head" then
+            part.Scale = Vector3.new(0, 0, 0)
+        end
+    end
+end
+local function setupCharacter(char)
+    Character        = char
+    HumanoidRootPart = char:WaitForChild("HumanoidRootPart")
+    Humanoid         = char:WaitForChild("Humanoid")
+    Head             = char:WaitForChild("Head")
+    hideCharacterHead()
+end
+setupCharacter(LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait())
+LocalPlayer.CharacterAdded:Connect(setupCharacter)
+local CONFIG = {
+    Sensitivity          = 0.18,
+    SensitivityADS       = 0.10,
+    SensitivityMobile    = 0.28,
+    SensitivityMobileADS = 0.15,
+    InvertY              = false,
+    LookMomentum         = 0.82,
+    FOV_Normal           = 90,
+    FOV_Sprint           = 98,
+    FOV_ADS              = 55,
+    FOV_Speed            = 12,
+    Bob_Enabled          = true,
+    Bob_WalkSpeed        = 7,
+    Bob_SprintSpeed      = 13,
+    Bob_WalkAmplitude    = 0.07,
+    Bob_SprintAmplitude  = 0.13,
+    Bob_YRatio           = 0.6,
+    Sway_Enabled         = true,
+    Sway_MouseAmount     = 0.12,
+    Sway_MouseRotation   = 3.5,
+    Sway_MaxRot          = 6.0,
+    Sway_Stiffness       = 14,
+    Sway_Damping         = 6,
+    Sway_MoveAmount      = 0.08,
+    Sway_MoveRotation    = 2.0,
+    Tilt_Enabled         = true,
+    Tilt_Amount          = 2.5,
+    Tilt_Speed           = 10,
+    Shake_LandMag        = 0.06,
+    Shake_LandDuration   = 0.2,
+    Shake_DecaySpeed     = 14,
+    Breathe_Enabled      = true,
+    Breathe_Speed        = 0.7,
+    Breathe_Amount       = 0.012,
+    Breathe_ADS_Amount   = 0.025,
+    SprintKey            = Enum.KeyCode.LeftShift,
+    SprintSpeed          = 24,
+    WalkSpeed            = 16,
+    ADSKey               = Enum.UserInputType.MouseButton2,
+    ADSWalkSpeed         = 10,
+    Death_RollAmount     = 25,
+    MaxLookUp            = 80,
+    MaxLookDown          = 80,
+    Energy_Max           = 5,
+    Energy_SprintDrain   = 0.833,
+    Energy_RegenRate     = 0.833,
+}
+local State = {
+    Pitch            = 0,
+    Yaw              = 0,
+    PitchVelocity    = 0,
+    YawVelocity      = 0,
+    SwayRot          = Vector2.new(0, 0),
+    SwayVelocity     = Vector2.new(0, 0),
+    SwayMoveRot      = Vector2.new(0, 0),
+    BobTimer         = 0,
+    BobOffset        = Vector3.new(0, 0, 0),
+    CurrentTilt      = 0,
+    TargetTilt       = 0,
+    ShakeOffset      = Vector3.new(0, 0, 0),
+    ShakeMagnitude   = 0,
+    ShakeTimer       = 0,
+    BreatheTimer     = 0,
+    IsSprinting      = false,
+    IsADS            = false,
+    IsDead           = false,
+    CurrentFOV       = CONFIG.FOV_Normal,
+    DeathRoll        = 0,
+    PrevVelocityY    = 0,
+    Energy           = 5,
+    EnergyRegenDelay = 0,
+}
+local function Lerp(a, b, t)        return a + (b - a) * t                    end
+local function Clamp(val, mn, mx)   return math.max(mn, math.min(mx, val))    end
+local function TriggerShake(magnitude, duration)
+    State.ShakeMagnitude = math.max(State.ShakeMagnitude, magnitude)
+    State.ShakeTimer     = math.max(State.ShakeTimer, duration)
+end
+local FPSCamera = {}
+function FPSCamera:GetIsADS()       return State.IsADS      end
+function FPSCamera:GetIsSprinting() return State.IsSprinting end
+function FPSCamera:GetPitch()       return State.Pitch       end
+function FPSCamera:GetYaw()         return State.Yaw         end
+local energyGui = Instance.new("ScreenGui")
+energyGui.Name           = "FPSEnergyUI"
+energyGui.ResetOnSpawn   = false
+energyGui.IgnoreGuiInset = true
+energyGui.Parent         = PlayerGui
+local barBG = Instance.new("Frame")
+barBG.Size                   = UDim2.new(0, 300, 0, 20)
+barBG.Position               = UDim2.new(0.5, 0, 1, -90)
+barBG.AnchorPoint            = Vector2.new(0.5, 0)
+barBG.BackgroundTransparency = 1
+barBG.BorderSizePixel        = 0
+barBG.ZIndex                 = 1
+barBG.Parent                 = energyGui
+local barShadow = Instance.new("Frame")
+barShadow.Size             = UDim2.new(0, 262, 0, 12)
+barShadow.Position         = UDim2.new(0, 20, 0.5, -4)
+barShadow.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+barShadow.BackgroundTransparency = 0.5
+barShadow.BorderSizePixel  = 0
+barShadow.ZIndex           = 1
+barShadow.Parent           = barBG
+local barFill = Instance.new("Frame")
+barFill.Size             = UDim2.new(0, 260, 0, 10)
+barFill.Position         = UDim2.new(0, 20, 0.5, -5)
+barFill.BackgroundColor3 = Color3.fromRGB(0, 200, 255)
+barFill.BorderSizePixel  = 0
+barFill.ZIndex           = 2
+barFill.Parent           = barBG
+local barGradient = Instance.new("UIGradient")
+barGradient.Color    = ColorSequence.new({
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(0, 140, 255)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(0, 240, 255)),
+})
+barGradient.Rotation = 90
+barGradient.Parent   = barFill
+
+local energyLabel = Instance.new("TextLabel")
+energyLabel.Size                   = UDim2.new(0, 300, 0, 25)
+energyLabel.Position               = UDim2.new(0.5, 0, 1, -65)
+energyLabel.AnchorPoint            = Vector2.new(0.5, 0)
+energyLabel.BackgroundTransparency = 1
+energyLabel.Text                   = "Game In Beta!"
+energyLabel.TextColor3             = Color3.fromRGB(255, 255, 255)
+energyLabel.FontFace               = Font.new("rbxassetid://12187375716", Enum.FontWeight.Regular, Enum.FontStyle.Normal)
+energyLabel.TextSize               = 16
+energyLabel.ZIndex                 = 3
+energyLabel.Parent                 = energyGui
+local energyLabelStroke = Instance.new("UIStroke")
+energyLabelStroke.Color     = Color3.fromRGB(0, 0, 0)
+energyLabelStroke.Thickness = 1
+energyLabelStroke.Parent    = energyLabel
+
+local function updateEnergyBar()
+    local pct = math.max(0, State.Energy / CONFIG.Energy_Max)
+    barFill.Size = UDim2.new(0, math.floor(260 * pct), 0, 10)
+end
+local function canSprint()
+    return State.Energy > 0
+end
+Camera.CameraType                 = Enum.CameraType.Scriptable
+UserInputService.MouseBehavior    = Enum.MouseBehavior.LockCenter
+UserInputService.MouseIconEnabled = false
+local IsMobile = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
+local mouseDeltaX = 0
+local mouseDeltaY = 0
+if IsMobile then
+    local ScreenGui = Instance.new("ScreenGui")
+    ScreenGui.Name           = "FPSMobileUI"
+    ScreenGui.ResetOnSpawn   = false
+    ScreenGui.IgnoreGuiInset = true
+    ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    ScreenGui.Parent         = PlayerGui
+    local lookZone = Instance.new("Frame")
+    lookZone.Size                   = UDim2.fromScale(0.55, 1)
+    lookZone.Position               = UDim2.fromScale(0.45, 0)
+    lookZone.BackgroundTransparency = 1
+    lookZone.ZIndex                 = 1
+    lookZone.Parent                 = ScreenGui
+    local lookTouch   = nil
+    local lookLastPos = nil
+    lookZone.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.Touch and lookTouch == nil then
+            lookTouch   = input
+            lookLastPos = input.Position
+        end
+    end)
+    lookZone.InputChanged:Connect(function(input)
+        if input == lookTouch and lookLastPos then
+            local delta = input.Position - lookLastPos
+            mouseDeltaX = delta.X
+            mouseDeltaY = delta.Y
+            lookLastPos = input.Position
+        end
+    end)
+    lookZone.InputEnded:Connect(function(input)
+        if input == lookTouch then
+            lookTouch   = nil
+            lookLastPos = nil
+        end
+    end)
+    local function makeButton(xScale, yScale, image)
+        local btn = Instance.new("ImageButton")
+        btn.Size                   = UDim2.new(0, 54, 0, 54)
+        btn.Position               = UDim2.fromScale(xScale, yScale)
+        btn.BackgroundTransparency = 1
+        btn.Image                  = image
+        btn.BorderSizePixel        = 0
+        btn.ZIndex                 = 2
+        btn.Active                 = false
+        btn.AutoButtonColor        = false
+        btn.PressedImage           = ""
+        btn.HoverImage             = ""
+        local emptyFrame = Instance.new("Frame")
+        emptyFrame.BackgroundTransparency = 1
+        emptyFrame.Size = UDim2.fromScale(1, 1)
+        btn.SelectionImageObject = emptyFrame
+        Instance.new("UICorner", btn).CornerRadius = UDim.new(0.3, 0)
+        btn.Parent = ScreenGui
+        return btn
+    end
+    local adsBtn    = makeButton(0.78, 0.62, adsTexture)
+    local sprintBtn = makeButton(0.89, 0.62, sprintTexture)
+    adsBtn.MouseButton1Click:Connect(function()
+        State.IsADS = not State.IsADS
+        adsBtn.BackgroundTransparency = State.IsADS and 0.1 or 0.4
+        if State.IsADS and State.IsSprinting then
+            State.IsSprinting = false
+            sprintBtn.BackgroundTransparency = 0.4
+        end
+        Humanoid.WalkSpeed = State.IsADS and CONFIG.ADSWalkSpeed or CONFIG.WalkSpeed
+    end)
+    sprintBtn.MouseButton1Click:Connect(function()
+        if not canSprint() then return end
+        State.IsSprinting  = not State.IsSprinting
+        Humanoid.WalkSpeed = State.IsSprinting and CONFIG.SprintSpeed or CONFIG.WalkSpeed
+        sprintBtn.BackgroundTransparency = State.IsSprinting and 0.1 or 0.4
+    end)
+else
+    UserInputService.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement then
+            mouseDeltaX = input.Delta.X
+            mouseDeltaY = input.Delta.Y
+        end
+    end)
+    UserInputService.InputBegan:Connect(function(input, gpe)
+        if gpe then return end
+        if input.KeyCode == CONFIG.SprintKey then
+            if canSprint() then
+                State.IsSprinting  = true
+                Humanoid.WalkSpeed = CONFIG.SprintSpeed
+            end
+        elseif input.UserInputType == CONFIG.ADSKey then
+            State.IsADS        = true
+            State.IsSprinting  = false
+            Humanoid.WalkSpeed = CONFIG.ADSWalkSpeed
+        end
+    end)
+    UserInputService.InputEnded:Connect(function(input)
+        if input.KeyCode == CONFIG.SprintKey then
+            State.IsSprinting  = false
+            Humanoid.WalkSpeed = CONFIG.WalkSpeed
+        elseif input.UserInputType == CONFIG.ADSKey then
+            State.IsADS        = false
+            Humanoid.WalkSpeed = CONFIG.WalkSpeed
+        end
+    end)
+end
+Humanoid.Jumping:Connect(function(active)
+    if not active then return end
+    local moveSpeed = Vector2.new(HumanoidRootPart.AssemblyLinearVelocity.X, HumanoidRootPart.AssemblyLinearVelocity.Z).Magnitude
+    if State.IsSprinting and moveSpeed > 0.5 then
+        State.Energy           = math.max(0, State.Energy - 0.1)
+        State.EnergyRegenDelay = 3
+    end
+end)
+Humanoid.Died:Connect(function()
+    State.IsDead = true
+    if not IsMobile then
+        UserInputService.MouseBehavior    = Enum.MouseBehavior.Default
+        UserInputService.MouseIconEnabled = true
+    end
+    local rollDir = math.random() > 0.5 and 1 or -1
+    RunService:BindToRenderStep("FPS_Death", Enum.RenderPriority.Camera.Value + 2, function(dt)
+        State.DeathRoll = Lerp(State.DeathRoll, CONFIG.Death_RollAmount * rollDir, dt * 4)
+    end)
+end)
+RunService.Heartbeat:Connect(function(dt)
+    if not HumanoidRootPart then return end
+    local vel  = HumanoidRootPart.AssemblyLinearVelocity
+    local velY = vel.Y
+    if State.PrevVelocityY < -20 and velY > -5 and Humanoid.FloorMaterial ~= Enum.Material.Air then
+        local impact = math.abs(State.PrevVelocityY)
+        local mag    = Clamp(impact / 80, 0, 1) * CONFIG.Shake_LandMag * 2 + CONFIG.Shake_LandMag
+        TriggerShake(mag, CONFIG.Shake_LandDuration)
+    end
+    local moveSpeed              = Vector2.new(vel.X, vel.Z).Magnitude
+    local isActivelySprintMoving = State.IsSprinting and moveSpeed > 0.5
+    if isActivelySprintMoving then
+        State.Energy           = math.max(0, State.Energy - CONFIG.Energy_SprintDrain * dt)
+        State.EnergyRegenDelay = 3
+        if State.Energy <= 0 then
+            State.IsSprinting  = false
+            Humanoid.WalkSpeed = CONFIG.WalkSpeed
+        end
+    else
+        if State.EnergyRegenDelay > 0 then
+            State.EnergyRegenDelay = math.max(0, State.EnergyRegenDelay - dt)
+        else
+            State.Energy = math.min(CONFIG.Energy_Max, State.Energy + CONFIG.Energy_RegenRate * dt)
+        end
+    end
+    updateEnergyBar()
+    State.PrevVelocityY = velY
+end)
+RunService:BindToRenderStep("FPS_Camera_Main", Enum.RenderPriority.Camera.Value + 1, function(dt)
+    if State.IsDead or not HumanoidRootPart then return end
+    dt = math.min(dt, 0.05)
+    local sens = IsMobile
+        and (State.IsADS and CONFIG.SensitivityMobileADS or CONFIG.SensitivityMobile)
+        or  (State.IsADS and CONFIG.SensitivityADS       or CONFIG.Sensitivity)
+    local dX = mouseDeltaX * sens
+    local dY = mouseDeltaY * sens * (CONFIG.InvertY and -1 or 1)
+    mouseDeltaX = 0
+    mouseDeltaY = 0
+    State.YawVelocity   = State.YawVelocity   * CONFIG.LookMomentum - dX
+    State.PitchVelocity = State.PitchVelocity * CONFIG.LookMomentum - dY
+    State.Yaw   = State.Yaw   + State.YawVelocity
+    State.Pitch = Clamp(State.Pitch + State.PitchVelocity, -CONFIG.MaxLookDown, CONFIG.MaxLookUp)
+    local rootCF    = HumanoidRootPart.CFrame
+    local camOrigin = CFrame.new(Head.Position + Vector3.new(0, 0.3, 0))
+    local baseCF    = camOrigin
+        * CFrame.Angles(0, math.rad(State.Yaw), 0)
+        * CFrame.Angles(math.rad(State.Pitch), 0, 0)
+    local bobOffset = Vector3.new(0, 0, 0)
+    if CONFIG.Bob_Enabled then
+        local vel   = HumanoidRootPart.AssemblyLinearVelocity
+        local speed = Vector2.new(vel.X, vel.Z).Magnitude
+        if speed > 0.5 and Humanoid.FloorMaterial ~= Enum.Material.Air then
+            local bobSpeed = State.IsSprinting and CONFIG.Bob_SprintSpeed or CONFIG.Bob_WalkSpeed
+            local bobAmp   = State.IsSprinting and CONFIG.Bob_SprintAmplitude or CONFIG.Bob_WalkAmplitude
+            if State.IsADS then bobAmp = bobAmp * 0.3 end
+            State.BobTimer = State.BobTimer + dt * bobSpeed
+            State.BobOffset = Vector3.new(
+                math.cos(State.BobTimer * 0.5) * bobAmp * 0.5,
+                math.sin(State.BobTimer)        * bobAmp * CONFIG.Bob_YRatio,
+                0
+            )
+        else
+            State.BobOffset = State.BobOffset:Lerp(Vector3.new(0, 0, 0), dt * 8)
+        end
+        bobOffset = State.BobOffset
+    end
+    local swayRot = CFrame.identity
+    if CONFIG.Sway_Enabled then
+        local mouseSwayTarget = Vector2.new(
+            Clamp(-dX * CONFIG.Sway_MouseAmount, -CONFIG.Sway_MaxRot, CONFIG.Sway_MaxRot),
+            Clamp(-dY * CONFIG.Sway_MouseAmount, -CONFIG.Sway_MaxRot, CONFIG.Sway_MaxRot)
+        )
+        local springForceX = (mouseSwayTarget.X - State.SwayRot.X) * CONFIG.Sway_Stiffness
+        local springForceY = (mouseSwayTarget.Y - State.SwayRot.Y) * CONFIG.Sway_Stiffness
+        State.SwayVelocity = Vector2.new(
+            State.SwayVelocity.X + (springForceX - State.SwayVelocity.X * CONFIG.Sway_Damping) * dt,
+            State.SwayVelocity.Y + (springForceY - State.SwayVelocity.Y * CONFIG.Sway_Damping) * dt
+        )
+        State.SwayRot = Vector2.new(
+            Clamp(State.SwayRot.X + State.SwayVelocity.X * dt, -CONFIG.Sway_MaxRot, CONFIG.Sway_MaxRot),
+            Clamp(State.SwayRot.Y + State.SwayVelocity.Y * dt, -CONFIG.Sway_MaxRot, CONFIG.Sway_MaxRot)
+        )
+        local vel        = HumanoidRootPart.AssemblyLinearVelocity
+        local strafeAmt  = Clamp(vel:Dot(rootCF.RightVector)  / 20, -1, 1) * CONFIG.Sway_MoveAmount
+        local forwardAmt = Clamp(vel:Dot(rootCF.LookVector)   / 20, -1, 1) * CONFIG.Sway_MoveAmount
+        State.SwayMoveRot = Vector2.new(
+            Lerp(State.SwayMoveRot.X, strafeAmt,  dt * 6),
+            Lerp(State.SwayMoveRot.Y, forwardAmt, dt * 6)
+        )
+        swayRot = CFrame.Angles(
+            math.rad(State.SwayRot.Y * CONFIG.Sway_MouseRotation + State.SwayMoveRot.Y * CONFIG.Sway_MoveRotation),
+            math.rad(State.SwayRot.X * CONFIG.Sway_MouseRotation + State.SwayMoveRot.X * CONFIG.Sway_MoveRotation),
+            math.rad(State.SwayRot.X * CONFIG.Sway_MouseRotation * 0.5)
+        )
+    end
+    local tiltAngle = 0
+    if CONFIG.Tilt_Enabled then
+        local strafeDot = HumanoidRootPart.AssemblyLinearVelocity:Dot(rootCF.RightVector)
+        State.TargetTilt  = -Clamp(strafeDot / 16, -1, 1) * CONFIG.Tilt_Amount
+        State.CurrentTilt = Lerp(State.CurrentTilt, State.TargetTilt, dt * CONFIG.Tilt_Speed)
+        tiltAngle         = State.CurrentTilt
+    end
+    local shakeOffset = Vector3.new(0, 0, 0)
+    if State.ShakeTimer > 0 then
+        State.ShakeTimer  = State.ShakeTimer - dt
+        local intensity   = State.ShakeMagnitude * math.max(0, State.ShakeTimer / 0.3)
+        shakeOffset = Vector3.new(
+            (math.random() * 2 - 1) * intensity,
+            (math.random() * 2 - 1) * intensity,
+            0
+        )
+        if State.ShakeTimer <= 0 then State.ShakeMagnitude = 0 end
+    end
+    State.ShakeOffset = State.ShakeOffset:Lerp(shakeOffset, dt * CONFIG.Shake_DecaySpeed)
+    local breatheOffset = Vector3.new(0, 0, 0)
+    if CONFIG.Breathe_Enabled then
+        State.BreatheTimer = State.BreatheTimer + dt * CONFIG.Breathe_Speed
+        local breatheAmt   = State.IsADS and CONFIG.Breathe_ADS_Amount or CONFIG.Breathe_Amount
+        breatheOffset = Vector3.new(
+            math.sin(State.BreatheTimer * 0.9) * breatheAmt,
+            math.sin(State.BreatheTimer * 1.1) * breatheAmt * 0.5,
+            0
+        )
+    end
+    local vel2D = Vector2.new(HumanoidRootPart.AssemblyLinearVelocity.X, HumanoidRootPart.AssemblyLinearVelocity.Z).Magnitude
+    local targetFOV = State.IsADS and CONFIG.FOV_ADS
+        or (State.IsSprinting and vel2D > 0.5 and CONFIG.FOV_Sprint)
+        or CONFIG.FOV_Normal
+    State.CurrentFOV   = Lerp(State.CurrentFOV, targetFOV, dt * CONFIG.FOV_Speed)
+    Camera.FieldOfView = State.CurrentFOV
+    Camera.CFrame = baseCF
+        * swayRot
+        * CFrame.Angles(0, 0, math.rad(tiltAngle + State.DeathRoll))
+        * CFrame.new(bobOffset + State.ShakeOffset + breatheOffset)
+    HumanoidRootPart.CFrame = CFrame.new(HumanoidRootPart.Position)
+        * CFrame.Angles(0, math.rad(State.Yaw), 0)
+end)
+local CFG = {
+    W  = 200,  H  = 120,
+    EW = 400,  EH = 240,
+    PX = 8,  PY = 8,
+    CamHeight   = 450,
+    NormalFOV   = 20,
+    ExpandedFOV = 13,
+    BarH = 4,
+    PSz = 14,
+    OSz = 8,
+    WSz = 10,
+    NSz = 13,
+    COL_BG       = Color3.fromRGB(0,   0,   0),
+    COL_HP_GREEN = Color3.fromRGB(0,   194, 0),
+    COL_ARMOR    = Color3.fromRGB(92,  148, 252),
+    COL_WHITE    = Color3.fromRGB(255, 255, 255),
+    COL_YELLOW   = Color3.fromRGB(255, 210, 0),
+    LOW_HP_PCT        = 25,
+    EXPAND_KEY        = Enum.KeyCode.M,
+    DOUBLE_TAP_WINDOW = 0.45,
+    ZONE_REFRESH      = 2,
+    BG_ALPHA          = 0.25,
+    VP_AMBIENT = Color3.fromRGB(160, 160, 160),
+    VP_LIGHT   = Color3.fromRGB(255, 255, 255),
+}
+local function halfVRange(fov)
+    return CFG.CamHeight * math.tan(math.rad(fov * 0.5))
+end
+if PlayerGui:FindFirstChild("GTA5Minimap") then
+    PlayerGui:FindFirstChild("GTA5Minimap"):Destroy()
+end
+local MapGui = Instance.new("ScreenGui")
+MapGui.Name           = "GTA5Minimap"
+MapGui.ResetOnSpawn   = false
+MapGui.DisplayOrder   = 10
+MapGui.IgnoreGuiInset = true
+MapGui.Parent         = PlayerGui
+local Container = Instance.new("Frame")
+Container.Name                   = "MinimapContainer"
+Container.AnchorPoint            = Vector2.new(1, 0)
+Container.Size                   = UDim2.new(0, CFG.W,  0, CFG.H)
+Container.Position               = UDim2.new(1, -CFG.PX, 0, CFG.PY + 36)
+Container.BackgroundTransparency = 1
+Container.ClipsDescendants       = false
+Container.Parent                 = MapGui
+local BorderOuter = Instance.new("Frame")
+BorderOuter.Size                   = UDim2.new(1, 2, 1, 2 - CFG.BarH * 2)
+BorderOuter.Position               = UDim2.new(0, -1, 0, -1)
+BorderOuter.BackgroundColor3       = CFG.COL_BG
+BorderOuter.BackgroundTransparency = 0
+BorderOuter.BorderSizePixel        = 0
+BorderOuter.ZIndex                 = 1
+BorderOuter.Parent                 = Container
+Instance.new("UICorner", BorderOuter).CornerRadius = UDim.new(0, 4)
+local BgFrame = Instance.new("Frame")
+BgFrame.Size                   = UDim2.new(1, 0, 1, -CFG.BarH * 2)
+BgFrame.BackgroundColor3       = CFG.COL_BG
+BgFrame.BackgroundTransparency = CFG.BG_ALPHA
+BgFrame.BorderSizePixel        = 0
+BgFrame.ZIndex                 = 2
+BgFrame.Parent                 = Container
+Instance.new("UICorner", BgFrame).CornerRadius = UDim.new(0, 2)
+local Viewport = Instance.new("ViewportFrame")
+Viewport.Size                   = UDim2.new(1, 0, 1, -CFG.BarH * 2)
+Viewport.BackgroundColor3       = Color3.fromRGB(15, 25, 12)
+Viewport.BackgroundTransparency = 0
+Viewport.BorderSizePixel        = 0
+Viewport.Ambient                = CFG.VP_AMBIENT
+Viewport.LightColor             = CFG.VP_LIGHT
+Viewport.LightDirection         = Vector3.new(-0.5, -1, -0.5)
+Viewport.ZIndex                 = 3
+Viewport.ClipsDescendants       = true
+Viewport.Parent                 = Container
+Instance.new("UICorner", Viewport).CornerRadius = UDim.new(0, 2)
+local ViewCamera = Instance.new("Camera")
+ViewCamera.FieldOfView = CFG.NormalFOV
+ViewCamera.Parent      = Viewport
+Viewport.CurrentCamera = ViewCamera
+local HpBg = Instance.new("Frame")
+HpBg.Size                   = UDim2.new(1, 0, 0, CFG.BarH)
+HpBg.Position               = UDim2.new(0, 0, 1, -CFG.BarH * 2)
+HpBg.BackgroundColor3       = Color3.fromRGB(8, 8, 8)
+HpBg.BackgroundTransparency = 0
+HpBg.BorderSizePixel        = 0
+HpBg.ZIndex                 = 4
+HpBg.Parent                 = Container
+local HpBar = Instance.new("Frame")
+HpBar.Size             = UDim2.new(1, 0, 1, 0)
+HpBar.BackgroundColor3 = CFG.COL_HP_GREEN
+HpBar.BorderSizePixel  = 0
+HpBar.ZIndex           = 5
+HpBar.Parent           = HpBg
+local HpGradient = Instance.new("UIGradient")
+HpGradient.Color = ColorSequence.new({
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(0, 140, 0)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(0, 255, 80)),
+})
+HpGradient.Rotation = 270
+HpGradient.Parent   = HpBar
+local ArBg = Instance.new("Frame")
+ArBg.Size                   = UDim2.new(1, 0, 0, CFG.BarH)
+ArBg.Position               = UDim2.new(0, 0, 1, -CFG.BarH)
+ArBg.BackgroundColor3       = Color3.fromRGB(8, 8, 8)
+ArBg.BackgroundTransparency = 0
+ArBg.BorderSizePixel        = 0
+ArBg.ZIndex                 = 4
+ArBg.Parent                 = Container
+local ArBar = Instance.new("Frame")
+ArBar.Size             = UDim2.new(0, 0, 1, 0)
+ArBar.BackgroundColor3 = CFG.COL_ARMOR
+ArBar.BorderSizePixel  = 0
+ArBar.ZIndex           = 5
+ArBar.Parent           = ArBg
+local BlipContainer = Instance.new("Frame")
+BlipContainer.Size                   = UDim2.new(1, 0, 1, -CFG.BarH * 2)
+BlipContainer.BackgroundTransparency = 1
+BlipContainer.BorderSizePixel        = 0
+BlipContainer.ZIndex                 = 6
+BlipContainer.ClipsDescendants       = true
+BlipContainer.Parent                 = Container
+local EdgeContainer = Instance.new("Frame")
+EdgeContainer.Size                   = UDim2.new(1, 0, 1, -CFG.BarH * 2)
+EdgeContainer.BackgroundTransparency = 1
+EdgeContainer.BorderSizePixel        = 0
+EdgeContainer.ZIndex                 = 7
+EdgeContainer.ClipsDescendants       = false
+EdgeContainer.Parent                 = Container
+local PlayerBlip = Instance.new("Frame")
+PlayerBlip.Size                   = UDim2.new(0, CFG.PSz, 0, CFG.PSz)
+PlayerBlip.AnchorPoint            = Vector2.new(0.5, 0.5)
+PlayerBlip.Position               = UDim2.new(0.5, 0, 0.5, -CFG.BarH)
+PlayerBlip.BackgroundTransparency = 1
+PlayerBlip.ZIndex                 = 10
+PlayerBlip.Parent                 = Container
+local PlayerArrowLabel = Instance.new("TextLabel")
+PlayerArrowLabel.Size                   = UDim2.new(1, 0, 1, 0)
+PlayerArrowLabel.BackgroundTransparency = 1
+PlayerArrowLabel.Text                   = "▲"
+PlayerArrowLabel.TextColor3             = CFG.COL_WHITE
+PlayerArrowLabel.TextScaled             = true
+PlayerArrowLabel.Font                   = Enum.Font.GothamBold
+PlayerArrowLabel.ZIndex                 = 10
+PlayerArrowLabel.Parent                 = PlayerBlip
+local PlayerArrowShadow = Instance.new("TextLabel")
+PlayerArrowShadow.Size                   = UDim2.new(1, 2, 1, 2)
+PlayerArrowShadow.Position               = UDim2.new(0, 1, 0, 1)
+PlayerArrowShadow.BackgroundTransparency = 1
+PlayerArrowShadow.Text                   = "▲"
+PlayerArrowShadow.TextColor3             = Color3.fromRGB(0, 0, 0)
+PlayerArrowShadow.TextTransparency       = 0.5
+PlayerArrowShadow.TextScaled             = true
+PlayerArrowShadow.Font                   = Enum.Font.GothamBold
+PlayerArrowShadow.ZIndex                 = 9
+PlayerArrowShadow.Parent                 = PlayerBlip
+
+
+local activeBlips = {}
+local function makeRoundDot(color, size)
+    local f = Instance.new("Frame")
+    f.Size             = UDim2.new(0, size, 0, size)
+    f.AnchorPoint      = Vector2.new(0.5, 0.5)
+    f.BackgroundColor3 = color
+    f.BorderSizePixel  = 0
+    f.ZIndex           = 7
+    Instance.new("UICorner", f).CornerRadius = UDim.new(1, 0)
+    local stroke = Instance.new("UIStroke")
+    stroke.Color     = Color3.fromRGB(0, 0, 0)
+    stroke.Thickness = 1
+    stroke.Parent    = f
+    return f
+end
+local function makeEdgeArrow(color, size)
+    local f = Instance.new("Frame")
+    f.Size                   = UDim2.new(0, size, 0, size)
+    f.AnchorPoint            = Vector2.new(0.5, 0.5)
+    f.BackgroundTransparency = 1
+    f.BorderSizePixel        = 0
+    f.ZIndex                 = 8
+    local t = Instance.new("TextLabel")
+    t.Name                   = "Arrow"
+    t.Size                   = UDim2.new(1.4, 0, 1.4, 0)
+    t.AnchorPoint            = Vector2.new(0.5, 0.5)
+    t.Position               = UDim2.new(0.5, 0, 0.5, 0)
+    t.BackgroundTransparency = 1
+    t.Text                   = "▸"
+    t.TextColor3             = color
+    t.TextScaled             = true
+    t.Font                   = Enum.Font.GothamBold
+    t.ZIndex                 = 8
+    t.Parent                 = f
+    return f
+end
+local function addBlip(id, worldPos, color, size)
+    size = size or CFG.OSz
+    if activeBlips[id] then
+        activeBlips[id].worldPos = worldPos
+        activeBlips[id].color    = color
+        return activeBlips[id]
+    end
+    local dot  = makeRoundDot(color, size)
+    dot.Name   = "Blip_" .. tostring(id)
+    dot.Parent = BlipContainer
+    local arrow   = makeEdgeArrow(color, size)
+    arrow.Name    = "Edge_" .. tostring(id)
+    arrow.Visible = false
+    arrow.Parent  = EdgeContainer
+    activeBlips[id] = {
+        frame     = dot,
+        edgeArrow = arrow,
+        worldPos  = worldPos,
+        color     = color,
+        size      = size,
+    }
+    return activeBlips[id]
+end
+local function removeBlip(id)
+    if activeBlips[id] then
+        activeBlips[id].frame:Destroy()
+        activeBlips[id].edgeArrow:Destroy()
+        activeBlips[id] = nil
+    end
+end
+local function setWaypoint(worldPos)
+    removeBlip("__waypoint")
+    local b = addBlip("__waypoint", worldPos, CFG.COL_YELLOW, CFG.WSz)
+    b.frame.Rotation = 45
+    for _, c in ipairs(b.frame:GetChildren()) do
+        if c:IsA("UICorner") then c:Destroy() end
+    end
+end
+local function clearWaypoint()
+    removeBlip("__waypoint")
+end
+local playerBlipMap = {}
+local function onPlayerAdded(p)
+    if p == LocalPlayer then return end
+    local id = "ply_" .. p.UserId
+    playerBlipMap[p] = id
+    addBlip(id, Vector3.new(0, 0, 0), CFG.COL_WHITE, CFG.OSz)
+end
+local function onPlayerRemoving(p)
+    if playerBlipMap[p] then
+        removeBlip(playerBlipMap[p])
+        playerBlipMap[p] = nil
+    end
+end
+for _, p in ipairs(Players:GetPlayers()) do onPlayerAdded(p) end
+Players.PlayerAdded:Connect(onPlayerAdded)
+Players.PlayerRemoving:Connect(onPlayerRemoving)
+local isExpanded  = false
+local lastTapTick = 0
+local TWEEN_INFO  = TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+local function setMinimapSize(expand)
+    isExpanded = expand
+    local tw, th = expand and CFG.EW or CFG.W, expand and CFG.EH or CFG.H
+    TweenService:Create(Container, TWEEN_INFO, { Size = UDim2.new(0, tw, 0, th) }):Play()
+
+    ViewCamera.FieldOfView = expand and CFG.ExpandedFOV or CFG.NormalFOV
+end
+UserInputService.InputBegan:Connect(function(input, gpe)
+    if gpe then return end
+    if input.KeyCode == CFG.EXPAND_KEY then
+        local now = tick()
+        if (now - lastTapTick) <= CFG.DOUBLE_TAP_WINDOW then
+            setMinimapSize(not isExpanded)
+            lastTapTick = 0
+        else
+            lastTapTick = now
+        end
+    end
+end)
+local cachedStreet = ""
+local cachedZone   = ""
+local lastZoneTick = 0
+local allMapParts  = {}
+local function buildCharacterSet()
+    local set = {}
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p.Character then
+            for _, d in ipairs(p.Character:GetDescendants()) do set[d] = true end
+            set[p.Character] = true
+        end
+    end
+    return set
+end
+task.spawn(function()
+    local charSet  = buildCharacterSet()
+    local count    = 0
+    local hasParts = false
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if obj:IsA("BasePart") and not charSet[obj] then
+            hasParts = true
+            pcall(function()
+                local c = obj:Clone()
+                c.CastShadow = false
+                for _, child in ipairs(c:GetDescendants()) do
+                    if child:IsA("BaseScript") or child:IsA("Constraint") then
+                        child:Destroy()
+                    end
+                end
+                c.Parent = Viewport
+            end)
+            count = count + 1
+            if count % 150 == 0 then RunService.RenderStepped:Wait() end
+        end
+    end
+    if not hasParts then
+        local ground = Instance.new("Part")
+        ground.Anchored   = true
+        ground.CanCollide = false
+        ground.CastShadow = false
+        ground.Size       = Vector3.new(10000, 1, 10000)
+        ground.Position   = Vector3.new(0, -1, 0)
+        ground.BrickColor = BrickColor.new("Bright green")
+        ground.Material   = Enum.Material.Grass
+        ground.Parent     = Viewport
+    end
+end)
+task.spawn(function()
+    RunService.RenderStepped:Wait()
+    local charSet = buildCharacterSet()
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if obj:IsA("BasePart") and not charSet[obj] then
+            local n = obj.Name
+            if n and n ~= "Part" and n ~= "BasePart" and n ~= "Union" and #n > 2 then
+                table.insert(allMapParts, obj)
+            end
+        end
+    end
+end)
+local function refreshZoneInfo()
+    if not HumanoidRootPart then return end
+    local pos     = HumanoidRootPart.Position
+    local closest = math.huge
+    local street  = ""
+    for _, part in ipairs(allMapParts) do
+        local d = (part.Position - pos).Magnitude
+        if d < closest then
+            closest = d
+            local sn = part:GetAttribute("StreetName")
+            local zn = part:GetAttribute("ZoneName")
+            if sn or zn then
+                street     = sn or ""
+                cachedZone = zn or ""
+            else
+                street     = part.Name
+                local par  = part.Parent
+                cachedZone = (par and par.Name ~= "Workspace" and par ~= workspace)
+                             and par.Name or ""
+            end
+        end
+    end
+    cachedStreet = street
+end
+local function worldToUV(worldPos, pPos, hvR, hhR)
+    local dx = worldPos.X - pPos.X
+    local dz = worldPos.Z - pPos.Z
+    return 0.5 + dx / (hhR * 2), 0.5 + dz / (hvR * 2)
+end
+local EDGE_PAD = 0.055
+local function clampToEdge(u, v)
+    local inside = u >= EDGE_PAD and u <= 1 - EDGE_PAD and
+                   v >= EDGE_PAD and v <= 1 - EDGE_PAD
+    if inside then return u, v, 0, false end
+    local dx, dy = u - 0.5, v - 0.5
+    if dx == 0 and dy == 0 then return 0.5, 0.5, 0, true end
+    local t = math.huge
+    if math.abs(dx) > 0 then t = math.min(t, (0.5 - EDGE_PAD) / math.abs(dx)) end
+    if math.abs(dy) > 0 then t = math.min(t, (0.5 - EDGE_PAD) / math.abs(dy)) end
+    return 0.5 + dx * t, 0.5 + dy * t, math.deg(math.atan2(dx, -dy)), true
+end
+local pulseAlpha   = 0
+local pulseDir     = 1
+local LOW_HP_FLASH = false
+RunService.RenderStepped:Connect(function(dt)
+    if not HumanoidRootPart or not Character then return end
+    local pPos = HumanoidRootPart.Position
+    ViewCamera.CFrame = CFrame.fromMatrix(
+        pPos + Vector3.new(0, CFG.CamHeight, 0),
+        Vector3.new(1, 0,  0),
+        Vector3.new(0, 0, -1),
+        Vector3.new(0, 1,  0)
+    )
+    local look = HumanoidRootPart.CFrame.LookVector
+    PlayerBlip.Rotation = math.deg(math.atan2(look.X, -look.Z))
+    local fov    = ViewCamera.FieldOfView
+    local hvR    = halfVRange(fov)
+    local aspect = Container.AbsoluteSize.X / math.max(Container.AbsoluteSize.Y - CFG.BarH * 2, 1)
+    local hhR    = hvR * aspect
+    local hp    = Humanoid and Humanoid.Health    or 0
+    local maxHp = Humanoid and Humanoid.MaxHealth or 100
+    local hpPct = math.clamp(hp / math.max(maxHp, 1), 0, 1)
+    HpBar.Size  = UDim2.new(hpPct, 0, 1, 0)
+    LOW_HP_FLASH = (hpPct * 100) <= CFG.LOW_HP_PCT
+    if LOW_HP_FLASH then
+        pulseAlpha = pulseAlpha + pulseDir * dt * 3
+        if     pulseAlpha >= 1 then pulseAlpha = 1; pulseDir = -1
+        elseif pulseAlpha <= 0 then pulseAlpha = 0; pulseDir =  1 end
+        HpBar.BackgroundColor3 = Color3.fromRGB(math.floor(180 + 75 * pulseAlpha), 20, 20)
+    else
+        pulseAlpha             = 0
+        HpBar.BackgroundColor3 = CFG.COL_HP_GREEN
+    end
+    local armorVal = 0
+    if Humanoid then
+        armorVal = Humanoid:GetAttribute("Armor") or Humanoid:GetAttribute("ArmorPoints") or 0
+    end
+    ArBar.Size = UDim2.new(math.clamp(armorVal / 100, 0, 1), 0, 1, 0)
+    for p, blipId in pairs(playerBlipMap) do
+        local bd = activeBlips[blipId]
+        if bd and p.Character then
+            local pHrp = p.Character:FindFirstChild("HumanoidRootPart")
+            if pHrp then bd.worldPos = pHrp.Position end
+        end
+    end
+    for _, bd in pairs(activeBlips) do
+        local u, v                = worldToUV(bd.worldPos, pPos, hvR, hhR)
+        local eu, ev, ang, isEdge = clampToEdge(u, v)
+        if isEdge then
+            bd.frame.Visible      = false
+            bd.edgeArrow.Visible  = true
+            bd.edgeArrow.Position = UDim2.new(eu, 0, ev, 0)
+            local arrowGlyph = bd.edgeArrow:FindFirstChild("Arrow")
+            if arrowGlyph then arrowGlyph.Rotation = ang end
+        else
+            bd.frame.Visible     = true
+            bd.edgeArrow.Visible = false
+            bd.frame.Position    = UDim2.new(u, 0, v, 0)
+        end
+    end
+    local now = tick()
+    if now - lastZoneTick >= CFG.ZONE_REFRESH then
+        lastZoneTick = now
+        task.spawn(refreshZoneInfo)
+    end
+
+end)
+_G.FPSCamera            = FPSCamera
+_G.MinimapAddBlip       = addBlip
+_G.MinimapRemoveBlip    = removeBlip
+_G.MinimapSetWaypoint   = setWaypoint
+_G.MinimapClearWaypoint = clearWaypoint
+
+local CrosshairGui = Instance.new("ScreenGui")
+CrosshairGui.Name           = "DynamicCrosshair"
+CrosshairGui.ResetOnSpawn   = false
+CrosshairGui.IgnoreGuiInset = true
+CrosshairGui.DisplayOrder   = 20
+CrosshairGui.Parent         = PlayerGui
+
+local CH = {
+    Thickness   = 2,
+    Length      = 10,
+    BaseGap     = 6,
+    SprintGap   = 20,
+    MoveGap     = 12,
+    IdleGap     = 6,
+    LerpSpeed   = 14,
+    DotSize     = 3,
+    Color       = Color3.fromRGB(255, 255, 255),
+    OutlineCol  = Color3.fromRGB(0, 0, 0),
+    OutlineSize = 1,
+}
+
+local function makeBar(isOutline)
+    local f = Instance.new("Frame")
+    f.BackgroundColor3 = isOutline and CH.OutlineCol or CH.Color
+    f.BorderSizePixel  = 0
+    f.AnchorPoint      = Vector2.new(0.5, 0.5)
+    f.ZIndex           = isOutline and 9 or 10
+    f.Parent           = CrosshairGui
+    return f
+end
+
+local oDot = makeBar(true)  local dot = makeBar(false)
+
+local ring = Instance.new("Frame")
+ring.AnchorPoint            = Vector2.new(0.5, 0.5)
+ring.Position               = UDim2.new(0.5, 0, 0.5, 0)
+ring.BackgroundTransparency = 1
+ring.BorderSizePixel        = 0
+ring.ZIndex                 = 8
+ring.Parent                 = CrosshairGui
+Instance.new("UICorner", ring).CornerRadius = UDim.new(1, 0)
+local ringStroke = Instance.new("UIStroke")
+ringStroke.Color     = Color3.fromRGB(255, 255, 255)
+ringStroke.Thickness = 1.5
+ringStroke.Parent    = ring
+
+local currentGap = CH.BaseGap
+
+local function updateBars(gap)
+    local os = CH.OutlineSize
+    local cx, cy = 0.5, 0.5
+
+    dot.Size      = UDim2.new(0, CH.DotSize,      0, CH.DotSize)
+    dot.Position  = UDim2.new(cx, 0, cy, 0)
+    oDot.Size     = UDim2.new(0, CH.DotSize+os*2, 0, CH.DotSize+os*2)
+    oDot.Position = dot.Position
+
+    local ringDiam = gap * 2 + 40
+    ring.Size = UDim2.new(0, ringDiam, 0, ringDiam)
+end
+
+RunService.RenderStepped:Connect(function(dt)
+    if State.IsADS then
+        dot.Visible  = false  oDot.Visible = false
+        ring.Visible = false
+        return
+    end
+
+    dot.Visible  = true  oDot.Visible = true
+    ring.Visible = true
+
+    local targetGap
+    if HumanoidRootPart then
+        local vel2D = Vector2.new(
+            HumanoidRootPart.AssemblyLinearVelocity.X,
+            HumanoidRootPart.AssemblyLinearVelocity.Z
+        ).Magnitude
+        if vel2D > CONFIG.SprintSpeed * 0.6 then
+            targetGap = CH.SprintGap
+        elseif vel2D > 1 then
+            targetGap = CH.MoveGap
+        else
+            targetGap = CH.IdleGap
+        end
+    else
+        targetGap = CH.IdleGap
+    end
+
+    currentGap = currentGap + (targetGap - currentGap) * math.min(1, dt * CH.LerpSpeed)
+    updateBars(currentGap)
+end)
