@@ -1,0 +1,495 @@
+local g = getsynasset or getcustomasset
+
+local sprintFile = "sprint_icon.png"
+local adsFile    = "ads_icon.png"
+
+if not isfile(sprintFile) then
+    writefile(sprintFile, game:HttpGet("https://raw.githubusercontent.com/NetlessScripter/The-Final-Test/refs/heads/main/IMG_1242.png"))
+end
+if not isfile(adsFile) then
+    writefile(adsFile, game:HttpGet("https://raw.githubusercontent.com/NetlessScripter/The-Final-Test/refs/heads/main/IMG_1241.png"))
+end
+
+local energyBarFile = "energy_bar.png"
+if not isfile(energyBarFile) then
+    writefile(energyBarFile, game:HttpGet("https://raw.githubusercontent.com/NetlessScripter/The-Final-Test/refs/heads/main/IMG_1245.png"))
+end
+
+local energyFillFile = "energy_fill.png"
+if not isfile(energyFillFile) then
+    writefile(energyFillFile, game:HttpGet("https://raw.githubusercontent.com/NetlessScripter/The-Final-Test/refs/heads/main/IMG_1247.png"))
+end
+
+local sprintTexture    = g(sprintFile)
+local adsTexture       = g(adsFile)
+local energyBarTexture = g(energyBarFile)
+local energyFillTexture = g(energyFillFile)
+
+local Players           = game:GetService("Players")
+local RunService        = game:GetService("RunService")
+local UserInputService  = game:GetService("UserInputService")
+local LocalPlayer       = Players.LocalPlayer
+local Camera            = workspace.CurrentCamera
+local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+local HumanoidRootPart = Character:WaitForChild("HumanoidRootPart")
+local Humanoid          = Character:WaitForChild("Humanoid")
+local Head              = Character:WaitForChild("Head")
+
+local function hideCharacterHead()
+    for _, part in ipairs(Character:GetDescendants()) do
+        if part:IsA("BasePart") and part.Name == "Head" then
+            part.Transparency = 1
+            part.CastShadow = false
+        elseif part:IsA("Decal") and part.Parent.Name == "Head" then
+            part.Transparency = 1
+        elseif part:IsA("Accessory") then
+            local handle = part:FindFirstChildOfClass("Part") or part:FindFirstChildOfClass("MeshPart") or part:FindFirstChildOfClass("SpecialMesh") and part:FindFirstChild("Handle")
+            if handle then
+                handle.Transparency = 1
+                handle.CastShadow = false
+            end
+        elseif part:IsA("SpecialMesh") and part.Parent.Name == "Head" then
+            part.Scale = Vector3.new(0, 0, 0)
+        end
+    end
+end
+
+hideCharacterHead()
+local CONFIG = {
+    Sensitivity         = 0.18,
+    SensitivityADS      = 0.10,
+    SensitivityMobile   = 0.28,
+    SensitivityMobileADS= 0.15,
+    InvertY             = false,
+    LookMomentum        = 0.82,
+    FOV_Normal          = 90,
+    FOV_Sprint          = 98,
+    FOV_ADS             = 55,
+    FOV_Speed           = 12,
+    Bob_Enabled         = true,
+    Bob_WalkSpeed       = 7,
+    Bob_SprintSpeed     = 13,
+    Bob_WalkAmplitude   = 0.07,
+    Bob_SprintAmplitude = 0.13,
+    Bob_YRatio          = 0.6,
+    Sway_Enabled        = true,
+    Sway_MouseAmount    = 0.12,
+    Sway_MouseRotation  = 3.5,
+    Sway_MaxRot         = 6.0,
+    Sway_Stiffness      = 14,
+    Sway_Damping        = 6,
+    Sway_MoveAmount     = 0.08,
+    Sway_MoveRotation   = 2.0,
+    Tilt_Enabled        = true,
+    Tilt_Amount         = 2.5,
+    Tilt_Speed          = 10,
+    Shake_LandMag        = 0.06,
+    Shake_LandDuration   = 0.2,
+    Shake_DecaySpeed     = 14,
+    Breathe_Enabled      = true,
+    Breathe_Speed        = 0.7,
+    Breathe_Amount       = 0.012,
+    Breathe_ADS_Amount   = 0.025,
+    SprintKey            = Enum.KeyCode.LeftShift,
+    SprintSpeed          = 24,
+    WalkSpeed            = 16,
+    ADSKey               = Enum.UserInputType.MouseButton2,
+    ADSWalkSpeed         = 10,
+    Death_RollAmount     = 25,
+    Death_DropAmount     = -2.5,
+    MaxLookUp            = 80,
+    MaxLookDown          = 80,
+    Energy_Max           = 5,
+    Energy_SprintDrain   = 0.833,
+    Energy_RegenRate     = 0.833,
+    Energy_SprintMin     = 0,
+}
+local State = {
+    Pitch           = 0,
+    Yaw             = 0,
+    PitchVelocity   = 0,
+    YawVelocity     = 0,
+    SwayRot         = Vector2.new(0, 0),
+    SwayVelocity    = Vector2.new(0, 0),
+    SwayMoveRot     = Vector2.new(0, 0),
+    BobTimer        = 0,
+    BobOffset       = Vector3.new(0, 0, 0),
+    CurrentTilt     = 0,
+    TargetTilt      = 0,
+    ShakeOffset     = Vector3.new(0, 0, 0),
+    ShakeMagnitude  = 0,
+    ShakeTimer      = 0,
+    BreatheTimer    = 0,
+    IsSprinting     = false,
+    IsADS           = false,
+    IsDead          = false,
+    CurrentFOV      = CONFIG.FOV_Normal,
+    DeathRoll       = 0,
+    DeathDrop       = 0,
+    PrevVelocityY   = 0,
+    Energy          = 5,
+    EnergyRegenDelay = 0,
+}
+local function Lerp(a, b, t)
+    return a + (b - a) * t
+end
+local function Clamp(val, min, max)
+    return math.max(min, math.min(max, val))
+end
+local FPSCamera = {}
+local function TriggerShake(magnitude, duration)
+    State.ShakeMagnitude = math.max(State.ShakeMagnitude, magnitude)
+    State.ShakeTimer     = math.max(State.ShakeTimer, duration)
+end
+function FPSCamera:GetIsADS()      return State.IsADS      end
+function FPSCamera:GetIsSprinting() return State.IsSprinting end
+function FPSCamera:GetPitch()      return State.Pitch       end
+function FPSCamera:GetYaw()        return State.Yaw         end
+_G.FPSCamera = FPSCamera
+
+local energyGui = Instance.new("ScreenGui")
+energyGui.Name = "FPSEnergyUI"
+energyGui.ResetOnSpawn = false
+energyGui.IgnoreGuiInset = true
+energyGui.Parent = LocalPlayer.PlayerGui
+
+local barBG = Instance.new("ImageLabel")
+barBG.Size = UDim2.new(0, 300, 0, 20)
+barBG.Position = UDim2.new(0.5, 0, 1, -90)
+barBG.AnchorPoint = Vector2.new(0.5, 0)
+barBG.BackgroundTransparency = 1
+barBG.BorderSizePixel = 0
+barBG.Image = energyBarTexture
+barBG.ScaleType = Enum.ScaleType.Stretch
+barBG.ZIndex = 1
+barBG.Parent = energyGui
+
+local barFill = Instance.new("Frame")
+barFill.Size = UDim2.new(0, 260, 0, 10)
+barFill.Position = UDim2.new(0, 20, 0.5, -5)
+barFill.BackgroundColor3 = Color3.fromRGB(0, 200, 255)
+barFill.BorderSizePixel = 0
+barFill.ZIndex = 2
+barFill.Parent = barBG
+Instance.new("UICorner", barFill).CornerRadius = UDim.new(0, 4)
+
+local function updateEnergyBar()
+    local pct = math.max(0, State.Energy / CONFIG.Energy_Max)
+    barFill.Size = UDim2.new(0, math.floor(260 * pct), 0, 10)
+end
+
+local function canSprint()
+    return State.Energy > 0
+end
+
+
+Camera.CameraType = Enum.CameraType.Scriptable
+UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
+UserInputService.MouseIconEnabled = false
+local IsMobile = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
+
+local mouseDeltaX = 0
+local mouseDeltaY = 0
+
+if IsMobile then
+    local ScreenGui = Instance.new("ScreenGui")
+    ScreenGui.Name = "FPSMobileUI"
+    ScreenGui.ResetOnSpawn = false
+    ScreenGui.IgnoreGuiInset = true
+    ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    ScreenGui.Parent = LocalPlayer.PlayerGui
+
+    local lookZone = Instance.new("Frame")
+    lookZone.Size = UDim2.fromScale(0.55, 1)
+    lookZone.Position = UDim2.fromScale(0.45, 0)
+    lookZone.BackgroundTransparency = 1
+    lookZone.ZIndex = 1
+    lookZone.Parent = ScreenGui
+
+    local lookTouch = nil
+    local lookLastPos = nil
+
+    lookZone.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.Touch and lookTouch == nil then
+            lookTouch   = input
+            lookLastPos = input.Position
+        end
+    end)
+
+    lookZone.InputChanged:Connect(function(input)
+        if input == lookTouch and lookLastPos then
+            local delta = input.Position - lookLastPos
+            mouseDeltaX = delta.X
+            mouseDeltaY = delta.Y
+            lookLastPos = input.Position
+        end
+    end)
+
+    lookZone.InputEnded:Connect(function(input)
+        if input == lookTouch then
+            lookTouch   = nil
+            lookLastPos = nil
+        end
+    end)
+
+    local function makeButton(xScale, yScale, wScale, hScale, image)
+        local btn = Instance.new("ImageButton")
+        btn.Size = UDim2.new(0, 54, 0, 54)
+        btn.Position = UDim2.fromScale(xScale, yScale)
+        btn.BackgroundTransparency = 1
+        btn.Image = image
+        btn.BorderSizePixel = 0
+        btn.ZIndex = 2
+        btn.Active = false
+        btn.AutoButtonColor = false
+        btn.PressedImage = ""
+        btn.HoverImage = ""
+        local emptyFrame = Instance.new("Frame")
+        emptyFrame.BackgroundTransparency = 1
+        emptyFrame.Size = UDim2.fromScale(1, 1)
+        btn.SelectionImageObject = emptyFrame
+        Instance.new("UICorner", btn).CornerRadius = UDim.new(0.3, 0)
+        btn.Parent = ScreenGui
+        return btn
+    end
+
+    local adsBtn    = makeButton(0.78, 0.62, 0.10, 0.08, adsTexture)
+    local sprintBtn = makeButton(0.89, 0.62, 0.10, 0.08, sprintTexture)
+    adsBtn.MouseButton1Click:Connect(function()
+        State.IsADS = not State.IsADS
+        adsBtn.BackgroundTransparency = State.IsADS and 0.1 or 0.4
+        if State.IsADS and State.IsSprinting then
+            State.IsSprinting = false
+            sprintBtn.BackgroundTransparency = 0.4
+        end
+        Humanoid.WalkSpeed = State.IsADS and CONFIG.ADSWalkSpeed or CONFIG.WalkSpeed
+    end)
+
+    sprintBtn.MouseButton1Click:Connect(function()
+        if not canSprint() then return end
+        State.IsSprinting = not State.IsSprinting
+        Humanoid.WalkSpeed = State.IsSprinting and CONFIG.SprintSpeed or CONFIG.WalkSpeed
+        sprintBtn.BackgroundTransparency = State.IsSprinting and 0.1 or 0.4
+    end)
+else
+    UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
+    UserInputService.MouseIconEnabled = false
+
+    UserInputService.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement then
+            mouseDeltaX = input.Delta.X
+            mouseDeltaY = input.Delta.Y
+        end
+    end)
+
+    UserInputService.InputBegan:Connect(function(input, gpe)
+        if gpe then return end
+        if input.KeyCode == CONFIG.SprintKey then
+            if canSprint() then
+                State.IsSprinting = true
+                Humanoid.WalkSpeed = CONFIG.SprintSpeed
+            end
+        end
+    end)
+
+    UserInputService.InputEnded:Connect(function(input)
+        if input.KeyCode == CONFIG.SprintKey then
+            State.IsSprinting = false
+            Humanoid.WalkSpeed = CONFIG.WalkSpeed
+        end
+    end)
+
+    UserInputService.InputBegan:Connect(function(input, gpe)
+        if gpe then return end
+        if input.UserInputType == CONFIG.ADSKey then
+            State.IsADS = true
+            if State.IsSprinting then
+                State.IsSprinting = false
+            end
+            Humanoid.WalkSpeed = CONFIG.ADSWalkSpeed
+        end
+    end)
+
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == CONFIG.ADSKey then
+            State.IsADS = false
+            Humanoid.WalkSpeed = CONFIG.WalkSpeed
+        end
+    end)
+end
+Humanoid.Jumping:Connect(function(active)
+    if not active then return end
+    local moveSpeed = Vector2.new(HumanoidRootPart.AssemblyLinearVelocity.X, HumanoidRootPart.AssemblyLinearVelocity.Z).Magnitude
+    if State.IsSprinting and moveSpeed > 0.5 then
+        State.Energy = math.max(0, State.Energy - 0.1)
+        State.EnergyRegenDelay = 3
+    end
+end)
+Humanoid.Died:Connect(function()
+    State.IsDead = true
+    if not IsMobile then
+        UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+        UserInputService.MouseIconEnabled = true
+    end
+    local t = 0
+    local rollDir = math.random() > 0.5 and 1 or -1
+    RunService:BindToRenderStep("FPS_Death", Enum.RenderPriority.Camera.Value + 2, function(dt)
+        t = t + dt
+        State.DeathRoll = Lerp(State.DeathRoll, CONFIG.Death_RollAmount * rollDir, dt * 4)
+        State.DeathDrop = Lerp(State.DeathDrop, CONFIG.Death_DropAmount, dt * 3)
+    end)
+end)
+RunService.Heartbeat:Connect(function(dt)
+    local vel = HumanoidRootPart.AssemblyLinearVelocity
+    local velY = vel.Y
+    if State.PrevVelocityY < -20 and velY > -5 and Humanoid.FloorMaterial ~= Enum.Material.Air then
+        local impact = math.abs(State.PrevVelocityY)
+        local mag = Clamp(impact / 80, 0, 1) * CONFIG.Shake_LandMag * 2 + CONFIG.Shake_LandMag
+        TriggerShake(mag, CONFIG.Shake_LandDuration)
+    end
+    local moveSpeed = Vector2.new(HumanoidRootPart.AssemblyLinearVelocity.X, HumanoidRootPart.AssemblyLinearVelocity.Z).Magnitude
+    local isActivelySprintMoving = State.IsSprinting and moveSpeed > 0.5
+    if isActivelySprintMoving then
+        State.Energy = math.max(0, State.Energy - CONFIG.Energy_SprintDrain * dt)
+        State.EnergyRegenDelay = 3
+        if State.Energy <= 0 then
+            State.IsSprinting = false
+            Humanoid.WalkSpeed = CONFIG.WalkSpeed
+        end
+    else
+        if State.EnergyRegenDelay > 0 then
+            State.EnergyRegenDelay = math.max(0, State.EnergyRegenDelay - dt)
+        else
+            State.Energy = math.min(CONFIG.Energy_Max, State.Energy + CONFIG.Energy_RegenRate * dt)
+        end
+    end
+    updateEnergyBar()
+    State.PrevVelocityY = velY
+end)
+RunService:BindToRenderStep("FPS_Camera_Main", Enum.RenderPriority.Camera.Value + 1, function(dt)
+    if State.IsDead then return end
+    dt = math.min(dt, 0.05)
+    local sens = IsMobile
+        and (State.IsADS and CONFIG.SensitivityMobileADS or CONFIG.SensitivityMobile)
+        or  (State.IsADS and CONFIG.SensitivityADS        or CONFIG.Sensitivity)
+    local dX = mouseDeltaX * sens
+    local dY = mouseDeltaY * sens * (CONFIG.InvertY and -1 or 1)
+    mouseDeltaX = 0
+    mouseDeltaY = 0
+    State.YawVelocity   = State.YawVelocity   * CONFIG.LookMomentum - dX
+    State.PitchVelocity = State.PitchVelocity * CONFIG.LookMomentum - dY
+    State.Yaw   = State.Yaw   + State.YawVelocity
+    State.Pitch = Clamp(State.Pitch + State.PitchVelocity, -CONFIG.MaxLookDown, CONFIG.MaxLookUp)
+    local rootCF  = HumanoidRootPart.CFrame
+    local headPos = Head.Position
+    local camOrigin = CFrame.new(headPos + Vector3.new(0, 0.3, 0))
+    local rotYaw   = CFrame.Angles(0, math.rad(State.Yaw), 0)
+    local rotPitch = CFrame.Angles(math.rad(State.Pitch), 0, 0)
+    local baseCF = camOrigin * rotYaw * rotPitch
+    local bobOffset = Vector3.new(0, 0, 0)
+    if CONFIG.Bob_Enabled then
+        local vel = HumanoidRootPart.AssemblyLinearVelocity
+        local speed = Vector2.new(vel.X, vel.Z).Magnitude
+        if speed > 0.5 and Humanoid.FloorMaterial ~= Enum.Material.Air then
+            local bobSpeed = State.IsSprinting and CONFIG.Bob_SprintSpeed or CONFIG.Bob_WalkSpeed
+            local bobAmp   = State.IsSprinting and CONFIG.Bob_SprintAmplitude or CONFIG.Bob_WalkAmplitude
+            if State.IsADS then bobAmp = bobAmp * 0.3 end
+            State.BobTimer = State.BobTimer + dt * bobSpeed
+            local bY = math.sin(State.BobTimer) * bobAmp * CONFIG.Bob_YRatio
+            local bX = math.cos(State.BobTimer * 0.5) * bobAmp * 0.5
+            State.BobOffset = Vector3.new(bX, bY, 0)
+        else
+            State.BobOffset = State.BobOffset:Lerp(Vector3.new(0, 0, 0), dt * 8)
+        end
+        bobOffset = State.BobOffset
+    end
+    local swayRot = CFrame.identity
+    if CONFIG.Sway_Enabled then
+        local mouseSwayTarget = Vector2.new(
+            Clamp(-dX * CONFIG.Sway_MouseAmount, -CONFIG.Sway_MaxRot, CONFIG.Sway_MaxRot),
+            Clamp(-dY * CONFIG.Sway_MouseAmount, -CONFIG.Sway_MaxRot, CONFIG.Sway_MaxRot)
+        )
+        local springForceX = (mouseSwayTarget.X - State.SwayRot.X) * CONFIG.Sway_Stiffness
+        local springForceY = (mouseSwayTarget.Y - State.SwayRot.Y) * CONFIG.Sway_Stiffness
+        State.SwayVelocity = Vector2.new(
+            State.SwayVelocity.X + (springForceX - State.SwayVelocity.X * CONFIG.Sway_Damping) * dt,
+            State.SwayVelocity.Y + (springForceY - State.SwayVelocity.Y * CONFIG.Sway_Damping) * dt
+        )
+        State.SwayRot = Vector2.new(
+            Clamp(State.SwayRot.X + State.SwayVelocity.X * dt, -CONFIG.Sway_MaxRot, CONFIG.Sway_MaxRot),
+            Clamp(State.SwayRot.Y + State.SwayVelocity.Y * dt, -CONFIG.Sway_MaxRot, CONFIG.Sway_MaxRot)
+        )
+        local vel = HumanoidRootPart.AssemblyLinearVelocity
+        local right   = HumanoidRootPart.CFrame.RightVector
+        local forward = HumanoidRootPart.CFrame.LookVector
+        local strafeAmt  = Clamp(vel:Dot(right)   / 20, -1, 1) * CONFIG.Sway_MoveAmount
+        local forwardAmt = Clamp(vel:Dot(forward)  / 20, -1, 1) * CONFIG.Sway_MoveAmount
+        State.SwayMoveRot = Vector2.new(
+            Lerp(State.SwayMoveRot.X, strafeAmt,  dt * 6),
+            Lerp(State.SwayMoveRot.Y, forwardAmt, dt * 6)
+        )
+        local totalSwayYaw   = State.SwayRot.X * CONFIG.Sway_MouseRotation + State.SwayMoveRot.X * CONFIG.Sway_MoveRotation
+        local totalSwayPitch = State.SwayRot.Y * CONFIG.Sway_MouseRotation + State.SwayMoveRot.Y * CONFIG.Sway_MoveRotation
+        local totalSwayRoll  = State.SwayRot.X * CONFIG.Sway_MouseRotation * 0.5
+        swayRot = CFrame.Angles(
+            math.rad(totalSwayPitch),
+            math.rad(totalSwayYaw),
+            math.rad(totalSwayRoll)
+        )
+    end
+    local tiltAngle = 0
+    if CONFIG.Tilt_Enabled then
+        local vel = HumanoidRootPart.AssemblyLinearVelocity
+        local rightVec = rootCF.RightVector
+        local strafeDot = vel:Dot(rightVec)
+        local maxVel = 16
+        local normalizedStrafe = Clamp(strafeDot / maxVel, -1, 1)
+        State.TargetTilt = -normalizedStrafe * CONFIG.Tilt_Amount
+        State.CurrentTilt = Lerp(State.CurrentTilt, State.TargetTilt, dt * CONFIG.Tilt_Speed)
+        tiltAngle = State.CurrentTilt
+    end
+    local shakeOffset = Vector3.new(0, 0, 0)
+    if State.ShakeTimer > 0 then
+        State.ShakeTimer = State.ShakeTimer - dt
+        local progress = State.ShakeTimer / 0.3
+        local intensity = State.ShakeMagnitude * math.max(0, progress)
+        shakeOffset = Vector3.new(
+            (math.random() * 2 - 1) * intensity,
+            (math.random() * 2 - 1) * intensity,
+            0
+        )
+        if State.ShakeTimer <= 0 then
+            State.ShakeMagnitude = 0
+        end
+    end
+    State.ShakeOffset = State.ShakeOffset:Lerp(shakeOffset, dt * CONFIG.Shake_DecaySpeed)
+    local breatheOffset = Vector3.new(0, 0, 0)
+    if CONFIG.Breathe_Enabled then
+        State.BreatheTimer = State.BreatheTimer + dt * CONFIG.Breathe_Speed
+        local breatheAmt = State.IsADS and CONFIG.Breathe_ADS_Amount or CONFIG.Breathe_Amount
+        local bx = math.sin(State.BreatheTimer * 0.9) * breatheAmt
+        local by = math.sin(State.BreatheTimer * 1.1) * breatheAmt * 0.5
+        breatheOffset = Vector3.new(bx, by, 0)
+    end
+    local vel2D = Vector2.new(HumanoidRootPart.AssemblyLinearVelocity.X, HumanoidRootPart.AssemblyLinearVelocity.Z).Magnitude
+    local targetFOV
+    if State.IsADS then
+        targetFOV = CONFIG.FOV_ADS
+    elseif State.IsSprinting and vel2D > 0.5 then
+        targetFOV = CONFIG.FOV_Sprint
+    else
+        targetFOV = CONFIG.FOV_Normal
+    end
+    State.CurrentFOV = Lerp(State.CurrentFOV, targetFOV, dt * CONFIG.FOV_Speed)
+    Camera.FieldOfView = State.CurrentFOV
+    local totalRoll = tiltAngle + State.DeathRoll
+    local totalPosOffset = bobOffset + State.ShakeOffset + breatheOffset
+
+    local finalCF = baseCF
+        * swayRot
+        * CFrame.Angles(0, 0, math.rad(totalRoll))
+        * CFrame.new(totalPosOffset)
+    Camera.CFrame = finalCF
+    HumanoidRootPart.CFrame = CFrame.new(HumanoidRootPart.Position)
+        * CFrame.Angles(0, math.rad(State.Yaw), 0)
+end)
