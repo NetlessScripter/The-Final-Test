@@ -1,0 +1,2025 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>APEX PROTOCOL — TPS</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;400;600;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --c:#00d4ff;--c2:#ff6b00;--bg:#060810;
+  --panel:rgba(6,8,16,0.94);--text:#fff;--muted:#7a8fa8;
+  --danger:#ff2244;--ok:#00ff88;--font-d:'Orbitron',monospace;
+  --font-b:'Rajdhani',sans-serif;
+}
+html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:var(--font-b);user-select:none}
+
+/* CANVAS */
+#gc{position:fixed;inset:0;display:none;cursor:crosshair}
+
+/* ========== LOADING ========== */
+#ls{position:fixed;inset:0;z-index:999;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:24px}
+.lt{font-family:var(--font-d);font-size:11px;letter-spacing:.6em;color:var(--c);text-transform:uppercase}
+.lb{width:280px;height:2px;background:rgba(255,255,255,.08);overflow:hidden;border-radius:1px}
+.lf{height:100%;background:var(--c);box-shadow:0 0 12px var(--c);animation:lf 2s cubic-bezier(.4,0,.2,1) forwards}
+@keyframes lf{from{width:0}to{width:100%}}
+.ld{display:flex;gap:5px}
+.ld span{width:5px;height:5px;border-radius:50%;background:var(--c);opacity:.25;animation:ld 1.4s ease-in-out infinite}
+.ld span:nth-child(2){animation-delay:.2s}.ld span:nth-child(3){animation-delay:.4s}
+@keyframes ld{0%,80%,100%{opacity:.25;transform:scale(1)}40%{opacity:1;transform:scale(1.5)}}
+
+/* ========== MAIN MENU ========== */
+#mm{position:fixed;inset:0;z-index:100;display:none;flex-direction:column;align-items:center;justify-content:center;overflow:hidden}
+#mm::before{content:'';position:absolute;inset:0;
+  background:repeating-linear-gradient(90deg,transparent,transparent 80px,rgba(0,212,255,.025) 80px,rgba(0,212,255,.025) 81px),
+             repeating-linear-gradient(0,transparent,transparent 80px,rgba(0,212,255,.025) 80px,rgba(0,212,255,.025) 81px);
+  animation:gs 25s linear infinite}
+@keyframes gs{to{background-position:0 100px}}
+#mm::after{content:'';position:absolute;inset:0;
+  background:radial-gradient(ellipse 60% 60% at 50% 60%,rgba(0,212,255,.06) 0,transparent 70%)}
+.ml{font-family:var(--font-d);font-size:clamp(36px,7vw,80px);font-weight:900;letter-spacing:.18em;
+  text-shadow:0 0 40px var(--c),0 0 100px rgba(0,212,255,.2);
+  opacity:0;transform:translateY(-24px);animation:lo 1s cubic-bezier(.16,1,.3,1) .4s forwards;position:relative;z-index:1}
+.ms{font-size:11px;letter-spacing:.6em;color:var(--c);text-transform:uppercase;margin-top:10px;margin-bottom:70px;
+  opacity:0;animation:lo .8s ease .9s forwards;position:relative;z-index:1}
+@keyframes lo{to{opacity:1;transform:none}}
+.mb-wrap{display:flex;flex-direction:column;gap:14px;position:relative;z-index:1}
+.mb{
+  width:300px;height:58px;background:transparent;border:1px solid rgba(0,212,255,.25);
+  color:var(--text);font-family:var(--font-d);font-size:12px;font-weight:700;letter-spacing:.35em;
+  text-transform:uppercase;cursor:pointer;position:relative;overflow:hidden;
+  clip-path:polygon(0 0,calc(100% - 10px) 0,100% 10px,100% 100%,10px 100%,0 calc(100% - 10px));
+  opacity:0;transform:translateX(-32px);
+  transition:border-color .3s,color .3s,transform .3s cubic-bezier(.16,1,.3,1),box-shadow .3s,background .3s}
+.mb:nth-child(1){animation:lo .6s cubic-bezier(.16,1,.3,1) 1s forwards}
+.mb:nth-child(2){animation:lo .6s cubic-bezier(.16,1,.3,1) 1.15s forwards}
+.mb:nth-child(3){animation:lo .6s cubic-bezier(.16,1,.3,1) 1.3s forwards}
+.mb::before{content:'';position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(0,212,255,.07),transparent);
+  transform:translateX(-100%);transition:transform .45s ease}
+.mb::after{content:'';position:absolute;bottom:0;left:0;width:0;height:2px;background:var(--c);
+  box-shadow:0 0 8px var(--c);transition:width .35s ease}
+.mb:hover{border-color:var(--c);color:var(--c);transform:translateX(10px);
+  box-shadow:-4px 0 24px rgba(0,212,255,.18),inset 0 0 20px rgba(0,212,255,.04)}
+.mb:hover::before{transform:translateX(100%)}
+.mb:hover::after{width:100%}
+.mb:active{transform:translateX(5px) scale(.975);background:rgba(0,212,255,.08);transition:all .07s}
+
+/* ========== SETTINGS ========== */
+#sp{position:fixed;inset:0;z-index:200;display:none;align-items:center;justify-content:center;
+  background:rgba(0,0,0,.75);backdrop-filter:blur(10px)}
+#sp.on{display:flex;animation:fi .35s ease}
+@keyframes fi{from{opacity:0}to{opacity:1}}
+.sb{background:var(--panel);border:1px solid rgba(0,212,255,.18);width:660px;max-height:82vh;overflow-y:auto;
+  padding:36px 40px;position:relative;
+  clip-path:polygon(0 0,calc(100% - 18px) 0,100% 18px,100% 100%,18px 100%,0 calc(100% - 18px));
+  animation:si .4s cubic-bezier(.16,1,.3,1)}
+@keyframes si{from{transform:translateY(28px) scale(.96);opacity:0}to{transform:none;opacity:1}}
+.st{font-family:var(--font-d);font-size:20px;letter-spacing:.3em;color:var(--c);
+  margin-bottom:28px;padding-bottom:14px;border-bottom:1px solid rgba(0,212,255,.15)}
+.stabs{display:flex;gap:6px;margin-bottom:28px}
+.stab{padding:7px 18px;background:transparent;border:1px solid rgba(255,255,255,.1);color:var(--muted);
+  font-family:var(--font-b);font-size:12px;font-weight:600;letter-spacing:.2em;text-transform:uppercase;cursor:pointer;
+  transition:all .22s ease}
+.stab:hover{border-color:var(--c);color:var(--c);transform:translateY(-2px)}
+.stab.on{background:rgba(0,212,255,.1);border-color:var(--c);color:var(--c);box-shadow:0 3px 16px rgba(0,212,255,.12)}
+.ss{display:none}.ss.on{display:block}
+.sr{display:flex;align-items:center;justify-content:space-between;padding:15px 0;
+  border-bottom:1px solid rgba(255,255,255,.05)}
+.sr:last-child{border-bottom:none}
+.sr-anim{opacity:0;animation:ri .3s ease forwards}
+.sr:nth-child(1){animation-delay:.04s}.sr:nth-child(2){animation-delay:.08s}.sr:nth-child(3){animation-delay:.12s}
+.sr:nth-child(4){animation-delay:.16s}.sr:nth-child(5){animation-delay:.20s}.sr:nth-child(6){animation-delay:.24s}
+@keyframes ri{from{opacity:0;transform:translateX(-8px)}to{opacity:1;transform:none}}
+.sl{font-size:14px;font-weight:600;letter-spacing:.08em}
+.sd{font-size:11px;color:var(--muted);margin-top:2px}
+.qo{display:flex;gap:3px}
+.qb{padding:5px 13px;background:transparent;border:1px solid rgba(255,255,255,.1);color:var(--muted);
+  font-family:var(--font-b);font-size:11px;font-weight:600;letter-spacing:.1em;cursor:pointer;transition:all .2s}
+.qb:hover{border-color:var(--c);color:var(--c)}
+.qb.on{background:var(--c);border-color:var(--c);color:#000;font-weight:700}
+.sw{display:flex;align-items:center;gap:9px}
+.si{-webkit-appearance:none;width:150px;height:3px;background:rgba(255,255,255,.1);outline:none}
+.si::-webkit-slider-thumb{-webkit-appearance:none;width:15px;height:15px;background:var(--c);
+  border-radius:50%;cursor:pointer;box-shadow:0 0 8px var(--c);transition:transform .2s}
+.si::-webkit-slider-thumb:hover{transform:scale(1.35)}
+.sv{font-size:12px;color:var(--c);font-weight:700;width:44px;text-align:right}
+.tg{width:44px;height:22px;background:rgba(255,255,255,.1);border-radius:11px;position:relative;cursor:pointer;
+  transition:background .3s;border:1px solid rgba(255,255,255,.12)}
+.tg.on{background:rgba(0,212,255,.28);border-color:var(--c)}
+.tg::after{content:'';position:absolute;top:2px;left:2px;width:16px;height:16px;background:var(--muted);
+  border-radius:50%;transition:all .3s cubic-bezier(.34,1.56,.64,1)}
+.tg.on::after{left:24px;background:var(--c);box-shadow:0 0 7px var(--c)}
+.sc{position:absolute;top:18px;right:18px;width:34px;height:34px;background:transparent;
+  border:1px solid rgba(255,255,255,.12);color:var(--muted);font-size:17px;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;transition:all .2s}
+.sc:hover{border-color:var(--danger);color:var(--danger);transform:rotate(90deg);box-shadow:0 0 12px rgba(255,34,68,.25)}
+/* scrollbar */
+.sb::-webkit-scrollbar{width:3px}
+.sb::-webkit-scrollbar-thumb{background:rgba(0,212,255,.25);border-radius:2px}
+
+/* ========== HUD ========== */
+#hud{position:fixed;inset:0;pointer-events:none;z-index:50;display:none}
+#hud.on{display:block}
+/* crosshair */
+.xh{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:22px;height:22px;transition:all .1s ease}
+.xh div{position:absolute;background:rgba(255,255,255,.92);border-radius:1px;box-shadow:0 0 3px rgba(0,0,0,.9)}
+.xh .t{width:2px;height:7px;top:0;left:50%;transform:translateX(-50%)}
+.xh .b{width:2px;height:7px;bottom:0;left:50%;transform:translateX(-50%)}
+.xh .l{height:2px;width:7px;left:0;top:50%;transform:translateY(-50%)}
+.xh .r{height:2px;width:7px;right:0;top:50%;transform:translateY(-50%)}
+.xh .c{width:2px;height:2px;top:50%;left:50%;transform:translate(-50%,-50%);border-radius:50%}
+.xh.ads{opacity:0}
+/* health */
+.hw{position:absolute;bottom:136px;left:36px}
+.hl{font-size:10px;letter-spacing:.25em;color:var(--muted);text-transform:uppercase;margin-bottom:5px}
+.hbb{width:220px;height:7px;background:rgba(255,255,255,.08);border-radius:4px;overflow:hidden}
+.hbf{height:100%;background:linear-gradient(90deg,#00ff88,#00d4ff);border-radius:4px;
+  transition:width .45s cubic-bezier(.16,1,.3,1);box-shadow:0 0 10px rgba(0,255,136,.35)}
+.hn{font-family:var(--font-d);font-size:30px;font-weight:700;margin-top:4px;line-height:1}
+.shb{width:160px;height:4px;background:rgba(255,255,255,.07);border-radius:3px;overflow:hidden;margin-top:6px}
+.shf{height:100%;background:linear-gradient(90deg,#4488ff,var(--c));border-radius:3px;
+  transition:width .45s cubic-bezier(.16,1,.3,1);box-shadow:0 0 7px rgba(0,212,255,.35);width:75%}
+/* ammo */
+.aw{position:absolute;bottom:136px;right:36px;text-align:right}
+.am{font-family:var(--font-d);font-size:50px;font-weight:700;line-height:1;text-shadow:0 0 20px rgba(255,255,255,.15)}
+.ar{font-family:var(--font-d);font-size:18px;color:var(--muted);margin-top:3px}
+/* weapon name */
+.wn{position:absolute;bottom:158px;right:36px;font-family:var(--font-d);font-size:13px;letter-spacing:.3em;
+  opacity:0;transform:translateX(14px);transition:all .35s cubic-bezier(.16,1,.3,1);text-align:right;color:var(--text)}
+.wn.on{opacity:1;transform:none}
+/* sprint */
+.si2{position:absolute;bottom:86px;left:50%;transform:translateX(-50%);
+  font-size:9px;letter-spacing:.45em;color:var(--c);text-transform:uppercase;opacity:0;transition:opacity .3s}
+.si2.on{opacity:1}
+/* mantle prompt */
+.mp{position:absolute;top:44%;left:50%;transform:translateX(-50%);text-align:center;opacity:0;transition:opacity .2s}
+.mp.on{opacity:1}
+.mk{width:30px;height:30px;border:2px solid rgba(255,255,255,.7);border-radius:4px;
+  display:flex;align-items:center;justify-content:center;font-family:var(--font-d);font-size:11px;
+  margin:0 auto 5px;background:rgba(0,0,0,.5)}
+.mt{font-size:10px;letter-spacing:.25em;color:rgba(255,255,255,.7);text-transform:uppercase}
+/* hit marker */
+.hm{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:20px;height:20px;opacity:0;pointer-events:none}
+.hm.on{animation:hmf .25s ease forwards}
+@keyframes hmf{0%{opacity:1;transform:translate(-50%,-50%) scale(1.6)}100%{opacity:0;transform:translate(-50%,-50%) scale(1)}}
+/* leave btn */
+.lb2{position:absolute;top:18px;left:18px;width:42px;height:38px;background:rgba(255,34,68,.08);
+  border:1px solid rgba(255,34,68,.35);color:var(--danger);font-size:18px;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;pointer-events:auto;
+  clip-path:polygon(12% 0,100% 0,88% 100%,0 100%);
+  transition:all .22s ease}
+.lb2:hover{background:rgba(255,34,68,.22);border-color:var(--danger);box-shadow:0 0 18px rgba(255,34,68,.35)}
+.lb2:active{transform:scale(.93);transition:all .06s}
+/* minimap */
+.mm2{position:absolute;top:18px;right:18px;width:130px;height:130px;border-radius:50%;
+  border:1px solid rgba(0,212,255,.2);overflow:hidden}
+/* notifications */
+.nw{position:absolute;top:56px;right:36px;display:flex;flex-direction:column;gap:6px;align-items:flex-end}
+.nf{background:rgba(0,0,0,.7);border:1px solid rgba(0,212,255,.28);padding:6px 14px;
+  font-size:12px;letter-spacing:.1em;color:var(--c);
+  animation:ns .28s ease,nf2 .3s ease 2.7s forwards}
+@keyframes ns{from{transform:translateX(16px);opacity:0}to{transform:none;opacity:1}}
+@keyframes nf2{to{opacity:0;transform:translateX(12px)}}
+/* vignettes */
+.dv,.sv2,.av{position:fixed;inset:0;pointer-events:none}
+.dv{z-index:49;opacity:0;background:radial-gradient(ellipse at center,transparent 55%,rgba(255,34,68,.45) 100%)}
+.dv.on{animation:dvf .55s ease forwards}
+@keyframes dvf{0%{opacity:1}100%{opacity:0}}
+.sv2{z-index:48;opacity:0;background:radial-gradient(ellipse at center,transparent 45%,rgba(0,212,255,.07) 100%);transition:opacity .5s}
+.sv2.on{opacity:1}
+.av{z-index:48;opacity:0;background:radial-gradient(circle at center,transparent 30%,rgba(0,0,0,.88) 68%);transition:opacity .14s}
+.av.on{opacity:1}
+
+/* ========== ITEM BAR ========== */
+#ib{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);
+  display:none;gap:7px;z-index:51;align-items:flex-end;pointer-events:auto}
+#ib.on{display:flex}
+.is{width:74px;height:74px;background:rgba(0,0,0,.68);border:2px solid rgba(255,255,255,.14);
+  border-radius:5px;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  cursor:pointer;position:relative;backdrop-filter:blur(12px);
+  transform-origin:bottom center;transition:all .22s cubic-bezier(.34,1.56,.64,1)}
+.is:hover{border-color:rgba(255,255,255,.4);background:rgba(255,255,255,.07);transform:translateY(-4px)}
+.is.sel{width:88px;height:88px;background:rgba(0,0,0,.82);border-color:var(--c);
+  transform:translateY(-14px);
+  box-shadow:0 0 22px rgba(0,212,255,.38),0 0 44px rgba(0,212,255,.12),inset 0 0 18px rgba(0,212,255,.04)}
+.is.sel .isn{color:var(--c)}
+.is:active{transform:translateY(-2px) scale(.93);transition:all .06s}
+.is.sel:active{transform:translateY(-12px) scale(.93)}
+.isn{position:absolute;top:4px;left:5px;font-family:var(--font-d);font-size:9px;font-weight:700;
+  color:rgba(255,255,255,.38);transition:color .2s}
+.isi{font-size:26px;line-height:1;transition:transform .2s;filter:drop-shadow(0 0 3px rgba(0,0,0,.9))}
+.is.sel .isi{transform:scale(1.18)}
+.isa{position:absolute;bottom:4px;right:5px;font-family:var(--font-b);font-size:9px;font-weight:700;color:rgba(255,255,255,.55)}
+.irb{position:absolute;bottom:0;left:0;right:0;height:3px;border-radius:0 0 3px 3px;transition:all .3s}
+.is.sel .irb{height:4px;animation:rp 2s ease-in-out infinite}
+@keyframes rp{0%,100%{opacity:1}50%{opacity:.55}}
+.rc .irb{background:#aaa}
+.ru .irb{background:#00cc44;box-shadow:0 0 5px #00cc44}
+.rr .irb{background:#08f;box-shadow:0 0 5px #08f}
+.re .irb{background:#a0f;box-shadow:0 0 5px #a0f}
+.rl .irb{background:#f80;box-shadow:0 0 7px #f80}
+
+/* ========== LEAVE CONFIRM ========== */
+#lc{position:fixed;inset:0;z-index:300;display:none;align-items:center;justify-content:center;
+  background:rgba(0,0,0,.82);backdrop-filter:blur(14px)}
+#lc.on{display:flex;animation:fi .22s ease}
+.lcb{background:var(--panel);border:1px solid rgba(255,34,68,.28);padding:40px 48px;text-align:center;
+  clip-path:polygon(0 0,calc(100% - 15px) 0,100% 15px,100% 100%,15px 100%,0 calc(100% - 15px));
+  animation:si .28s cubic-bezier(.34,1.56,.64,1)}
+.lcb h2{font-family:var(--font-d);font-size:20px;letter-spacing:.2em;color:var(--danger);margin-bottom:10px}
+.lcb p{font-size:13px;color:var(--muted);margin-bottom:30px;letter-spacing:.05em}
+.la{display:flex;gap:14px;justify-content:center}
+.ab{padding:13px 38px;font-family:var(--font-d);font-size:11px;font-weight:700;letter-spacing:.3em;
+  text-transform:uppercase;cursor:pointer;border-radius:2px;transition:all .2s}
+.ab:active{transform:scale(.94);transition:all .05s}
+.ac{background:rgba(255,34,68,.12);border:1px solid var(--danger);color:var(--danger)}
+.ac:hover{background:rgba(255,34,68,.28);transform:translateY(-2px);box-shadow:0 4px 18px rgba(255,34,68,.25)}
+.ax{background:transparent;border:1px solid rgba(255,255,255,.18);color:var(--muted)}
+.ax:hover{border-color:rgba(255,255,255,.45);color:var(--text);transform:translateY(-2px)}
+
+/* ========== KILL BANNER ========== */
+.kb{position:absolute;top:60px;left:50%;transform:translateX(-50%);
+  font-family:var(--font-d);font-size:11px;letter-spacing:.3em;color:var(--ok);text-transform:uppercase;
+  opacity:0;pointer-events:none;text-shadow:0 0 12px var(--ok)}
+.kb.on{animation:kbf .9s ease forwards}
+@keyframes kbf{0%{opacity:1;transform:translateX(-50%) translateY(0)}
+  30%{opacity:1;transform:translateX(-50%) translateY(-6px)}100%{opacity:0;transform:translateX(-50%) translateY(-18px)}}
+/* ========== MOBILE CONTROLS ========== */
+#mob-ctrl{display:none;position:fixed;inset:0;z-index:55;pointer-events:none}
+body.mobile #mob-ctrl{display:block}
+
+/* --- Virtual Joystick --- */
+#mob-stick-zone{
+  position:absolute;bottom:44px;left:28px;
+  width:150px;height:150px;pointer-events:auto;
+  touch-action:none}
+#mob-outer{
+  position:absolute;inset:0;border-radius:50%;
+  border:2px solid rgba(0,212,255,.5);
+  background:rgba(0,0,0,.32);backdrop-filter:blur(4px)}
+#mob-knob{
+  position:absolute;width:56px;height:56px;
+  background:rgba(0,212,255,.6);border-radius:50%;
+  border:2px solid var(--c);
+  box-shadow:0 0 16px rgba(0,212,255,.5);
+  transform:translate(-50%,-50%);left:50%;top:50%;
+  pointer-events:none;transition:box-shadow .1s}
+
+/* --- Look zone (right 60% of screen, invisible) --- */
+#mob-look{
+  position:absolute;top:0;left:40%;right:0;bottom:200px;
+  pointer-events:auto;touch-action:none}
+
+/* --- Action buttons --- */
+#mob-actions{
+  position:absolute;bottom:30px;right:18px;
+  pointer-events:auto;display:grid;
+  grid-template-columns:60px 60px 88px;
+  grid-template-rows:60px 60px;
+  gap:12px;align-items:center;justify-items:center}
+.mbt{
+  border-radius:50%;display:flex;align-items:center;justify-content:center;
+  cursor:pointer;pointer-events:auto;touch-action:manipulation;
+  font-size:18px;font-family:var(--font-d);
+  background:rgba(0,0,0,.52);border:2px solid rgba(255,255,255,.32);
+  color:#fff;user-select:none;-webkit-user-select:none;
+  backdrop-filter:blur(8px);
+  transition:transform .08s,background .1s;
+  -webkit-tap-highlight-color:transparent}
+.mbt:active{transform:scale(.84);background:rgba(255,255,255,.18)}
+#mob-reload{width:56px;height:56px;font-size:20px;grid-column:1;grid-row:1}
+#mob-crouch{width:56px;height:56px;font-size:17px;grid-column:2;grid-row:1}
+#mob-ads{
+  width:60px;height:60px;font-size:11px;letter-spacing:.05em;
+  background:rgba(0,160,255,.38);border-color:rgba(0,212,255,.65);
+  grid-column:3;grid-row:1}
+#mob-jump{
+  width:68px;height:68px;
+  background:rgba(30,120,255,.45);border-color:rgba(80,200,255,.75);
+  grid-column:1/3;grid-row:2;width:auto;border-radius:32px;padding:0 16px;
+  font-size:13px;letter-spacing:.15em}
+#mob-fire{
+  width:88px;height:88px;font-size:24px;
+  background:rgba(210,35,35,.55);border-color:rgba(255,80,80,.75);
+  box-shadow:0 0 22px rgba(255,50,50,.35);
+  grid-column:3;grid-row:2}
+
+/* --- Mobile HUD adaptations --- */
+body.mobile .hw{bottom:210px;left:22px}
+body.mobile .hbb{width:150px}
+body.mobile .hn{font-size:22px}
+body.mobile .shb{width:110px}
+body.mobile .aw{bottom:210px;right:220px;text-align:right}
+body.mobile .am{font-size:38px}
+body.mobile .ar{font-size:13px}
+body.mobile .mm2{width:88px;height:88px;border-radius:50%;top:10px;right:10px}
+body.mobile .lb2{top:10px;left:10px;width:38px;height:34px}
+body.mobile .nw{top:60px;right:16px}
+body.mobile .nf{font-size:11px;padding:5px 10px}
+body.mobile #ib{bottom:210px;gap:6px}
+body.mobile .is{width:54px;height:54px}
+body.mobile .is.sel{width:66px;height:66px;transform:translateY(-10px)}
+body.mobile .isn{font-size:7px}
+body.mobile .isi{font-size:19px}
+body.mobile .isa{font-size:8px}
+body.mobile .si2{bottom:200px;font-size:8px}
+body.mobile .mp{top:38%}
+body.mobile .xh{display:none} /* crosshair hidden on mobile — tap to fire */
+</style>
+</head>
+<body>
+
+<!-- Loading -->
+<div id="ls">
+  <div class="lt">Initializing Systems</div>
+  <div class="lb"><div class="lf"></div></div>
+  <div class="ld"><span></span><span></span><span></span></div>
+</div>
+
+<!-- Main Menu -->
+<div id="mm" style="display:none">
+  <div class="ml">APEX PROTOCOL</div>
+  <div class="ms">Third Person Tactical Shooter</div>
+  <div class="mb-wrap">
+    <button class="mb" onclick="startGame()">▶ &nbsp;DEPLOY</button>
+    <button class="mb" onclick="openSettings()">⚙ &nbsp;SETTINGS</button>
+    <button class="mb" onclick="quitMenu()">✕ &nbsp;QUIT</button>
+  </div>
+</div>
+
+<!-- Settings -->
+<div id="sp">
+  <div class="sb">
+    <button class="sc" onclick="closeSettings()">✕</button>
+    <div class="st">SETTINGS</div>
+    <div class="stabs">
+      <button class="stab on" onclick="stab('gfx',this)">GRAPHICS</button>
+      <button class="stab" onclick="stab('aud',this)">AUDIO</button>
+      <button class="stab" onclick="stab('ctl',this)">CONTROLS</button>
+    </div>
+    <!-- Graphics -->
+    <div class="ss on" id="tab-gfx">
+      <div class="sr sr-anim"><div><div class="sl">RENDER QUALITY</div><div class="sd">Overall fidelity preset</div></div>
+        <div class="qo"><button class="qb" onclick="setQ('low',this)">LOW</button><button class="qb" onclick="setQ('med',this)">MED</button><button class="qb on" onclick="setQ('high',this)">HIGH</button><button class="qb" onclick="setQ('ultra',this)">ULTRA</button></div></div>
+      <div class="sr sr-anim"><div><div class="sl">SHADOWS</div><div class="sd">Real-time shadow casting</div></div>
+        <div class="tg on" id="tg-shad" onclick="tog('shad')"></div></div>
+      <div class="sr sr-anim"><div><div class="sl">ANTI-ALIASING</div><div class="sd">Edge smoothing (MSAA)</div></div>
+        <div class="tg on" id="tg-aa" onclick="tog('aa')"></div></div>
+      <div class="sr sr-anim"><div><div class="sl">AMBIENT OCCLUSION</div><div class="sd">Contact shadows &amp; depth</div></div>
+        <div class="tg" id="tg-ao" onclick="tog('ao')"></div></div>
+      <div class="sr sr-anim"><div><div class="sl">FIELD OF VIEW</div><div class="sd">Base camera angle</div></div>
+        <div class="sw"><input type="range" class="si" min="60" max="110" value="78" oninput="this.nextElementSibling.textContent=this.value+'°';cfg.fov=+this.value"><span class="sv">78°</span></div></div>
+      <div class="sr sr-anim"><div><div class="sl">DRAW DISTANCE</div><div class="sd">Maximum render range</div></div>
+        <div class="sw"><input type="range" class="si" min="100" max="800" value="400" step="50" oninput="this.nextElementSibling.textContent=this.value+'m';cfg.draw=+this.value"><span class="sv">400m</span></div></div>
+      <div class="sr sr-anim"><div><div class="sl">MOTION BLUR</div><div class="sd">Velocity-based blur</div></div>
+        <div class="tg" id="tg-mb" onclick="tog('mb')"></div></div>
+      <div class="sr sr-anim"><div><div class="sl">PARTICLE DENSITY</div><div class="sd">FX particle count</div></div>
+        <div class="qo"><button class="qb" onclick="setQ2('low',this)">LOW</button><button class="qb on" onclick="setQ2('med',this)">MED</button><button class="qb" onclick="setQ2('high',this)">HIGH</button></div></div>
+    </div>
+    <!-- Audio -->
+    <div class="ss" id="tab-aud">
+      <div class="sr sr-anim"><div><div class="sl">MASTER VOLUME</div></div>
+        <div class="sw"><input type="range" class="si" min="0" max="100" value="80" oninput="this.nextElementSibling.textContent=this.value+'%'"><span class="sv">80%</span></div></div>
+      <div class="sr sr-anim"><div><div class="sl">MUSIC</div></div>
+        <div class="sw"><input type="range" class="si" min="0" max="100" value="50" oninput="this.nextElementSibling.textContent=this.value+'%'"><span class="sv">50%</span></div></div>
+      <div class="sr sr-anim"><div><div class="sl">SOUND EFFECTS</div></div>
+        <div class="sw"><input type="range" class="si" min="0" max="100" value="100" oninput="this.nextElementSibling.textContent=this.value+'%'"><span class="sv">100%</span></div></div>
+      <div class="sr sr-anim"><div><div class="sl">VOICE CHAT</div></div>
+        <div class="tg on" onclick="tog('vc')"></div></div>
+    </div>
+    <!-- Controls -->
+    <div class="ss" id="tab-ctl">
+      <div class="sr sr-anim"><div><div class="sl">MOUSE SENSITIVITY</div><div class="sd">Camera rotation speed</div></div>
+        <div class="sw"><input type="range" class="si" min="1" max="20" value="6" step=".5" oninput="this.nextElementSibling.textContent=this.value;cfg.sens=+this.value"><span class="sv">6</span></div></div>
+      <div class="sr sr-anim"><div><div class="sl">ADS SENSITIVITY MULT.</div><div class="sd">Multiplier when aiming</div></div>
+        <div class="sw"><input type="range" class="si" min=".1" max="1" value=".6" step=".05" oninput="this.nextElementSibling.textContent=this.value+'x';cfg.adsMult=+this.value"><span class="sv">0.6x</span></div></div>
+      <div class="sr sr-anim"><div><div class="sl">CAMERA SWAY</div><div class="sd">Movement bob &amp; roll</div></div>
+        <div class="tg on" id="tg-sway" onclick="tog('sway')"></div></div>
+      <div class="sr sr-anim"><div><div class="sl">CAMERA SPRING FEEL</div><div class="sd">Drag catch-up response (lower = heavier drag)</div></div>
+        <div class="sw"><input type="range" class="si" min="60" max="380" value="190" step="10" oninput="this.nextElementSibling.textContent=this.value;cfg.springK=+this.value"><span class="sv">190</span></div></div>
+      <div class="sr sr-anim"><div><div class="sl">INVERT Y-AXIS</div></div>
+        <div class="tg" id="tg-iy" onclick="tog('iy')"></div></div>
+      <div class="sr sr-anim"><div><div class="sl">TOGGLE SPRINT</div></div>
+        <div class="tg" id="tg-ts" onclick="tog('ts')"></div></div>
+    </div>
+  </div>
+</div>
+
+<!-- Canvas -->
+<canvas id="gc"></canvas>
+
+<!-- Vignettes -->
+<div class="dv" id="dv"></div>
+<div class="sv2" id="sv2"></div>
+<div class="av" id="av"></div>
+
+<!-- HUD -->
+<div id="hud">
+  <button class="lb2" onclick="promptLeave()" style="pointer-events:auto">✕</button>
+  <!-- crosshair -->
+  <div class="xh" id="xh"><div class="t"></div><div class="b"></div><div class="l"></div><div class="r"></div><div class="c"></div></div>
+  <!-- health -->
+  <div class="hw" style="pointer-events:none">
+    <div class="hl">Health</div>
+    <div class="hbb"><div class="hbf" id="hbf" style="width:100%"></div></div>
+    <div class="hn" id="hn">100</div>
+    <div class="shb"><div class="shf" id="shf"></div></div>
+  </div>
+  <!-- ammo -->
+  <div class="aw" style="pointer-events:none">
+    <div class="am" id="am">28</div>
+    <div class="ar" id="ar">/ 120</div>
+  </div>
+  <!-- weapon name -->
+  <div class="wn" id="wn">ASSAULT RIFLE</div>
+  <!-- sprint indicator -->
+  <div class="si2" id="si2">◆ Sprinting</div>
+  <!-- mantle prompt -->
+  <div class="mp" id="mprompt"><div class="mk">F</div><div class="mt">Mantle</div></div>
+  <!-- hit marker -->
+  <svg class="hm" id="hmk" viewBox="0 0 20 20">
+    <line x1="0" y1="0" x2="7" y2="7" stroke="#ff4400" stroke-width="2.5"/>
+    <line x1="20" y1="0" x2="13" y2="7" stroke="#ff4400" stroke-width="2.5"/>
+    <line x1="0" y1="20" x2="7" y2="13" stroke="#ff4400" stroke-width="2.5"/>
+    <line x1="20" y1="20" x2="13" y2="13" stroke="#ff4400" stroke-width="2.5"/>
+  </svg>
+  <!-- minimap -->
+  <canvas class="mm2" id="mmc" width="130" height="130"></canvas>
+  <!-- notifications -->
+  <div class="nw" id="nw"></div>
+  <!-- kill banner -->
+  <div class="kb" id="kb">ENEMY ELIMINATED</div>
+
+  <!-- ══ MOBILE CONTROLS ══ -->
+  <div id="mob-ctrl">
+    <!-- Left virtual joystick -->
+    <div id="mob-stick-zone">
+      <div id="mob-outer"></div>
+      <div id="mob-knob"></div>
+    </div>
+    <!-- Right look zone (drag to look) -->
+    <div id="mob-look"></div>
+    <!-- Action buttons -->
+    <div id="mob-actions">
+      <button class="mbt" id="mob-reload">↺</button>
+      <button class="mbt" id="mob-crouch">⬇</button>
+      <button class="mbt" id="mob-ads">ADS</button>
+      <button class="mbt" id="mob-jump">JUMP</button>
+      <button class="mbt" id="mob-fire">🔥</button>
+    </div>
+  </div>
+</div>
+
+<!-- Item Bar -->
+<div id="ib"></div>
+
+<!-- Leave Confirm -->
+<div id="lc">
+  <div class="lcb">
+    <h2>LEAVE MATCH?</h2>
+    <p>You will forfeit your current progress.</p>
+    <div class="la">
+      <button class="ab ac" onclick="doLeave()">CONFIRM LEAVE</button>
+      <button class="ab ax" onclick="cancelLeave()">STAY IN MATCH</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
+<script>
+'use strict';
+// ══════════════════════════════════════════════════════════
+//   APEX PROTOCOL — TPS ENGINE
+//   Spring Camera Physics · Mantling · Fortnite Item Bar
+// ══════════════════════════════════════════════════════════
+
+// ── Config ──────────────────────────────────────────────
+const cfg = {
+  fov:78, draw:400, sens:6, adsMult:.6,
+  springK:190, // camera spring stiffness (drag catch-up feel)
+  sway:true, invertY:false, shadows:true
+};
+
+// ── Spring Physics ───────────────────────────────────────
+// Critical-damped spring: F = -k*x - d*v
+// This is the secret sauce — gives the "drag catch-up" easing
+class Sp {
+  constructor(k=190,d=26,m=1){this.k=k;this.d=d;this.m=m;this.v=0;this.val=0;this.tgt=0}
+  tick(dt){
+    const f=-this.k*(this.val-this.tgt)-this.d*this.v;
+    this.v+=(f/this.m)*dt;this.val+=this.v*dt;return this.val
+  }
+  snap(v){this.val=v;this.tgt=v;this.v=0}
+}
+class Sp3{
+  constructor(k=190,d=26){this.x=new Sp(k,d);this.y=new Sp(k,d);this.z=new Sp(k,d)}
+  tgt(x,y,z){this.x.tgt=x;this.y.tgt=y;this.z.tgt=z}
+  tick(dt){return{x:this.x.tick(dt),y:this.y.tick(dt),z:this.z.tick(dt)}}
+  snap(x,y,z){this.x.snap(x);this.y.snap(y);this.z.snap(z)}
+}
+
+// ── Input ───────────────────────────────────────────────
+const K={}, MB=[0,0,0];
+let mdx=0,mdy=0,scroll=0,locked=false;
+document.addEventListener('keydown',e=>{K[e.code]=1;if(locked&&['Space','Tab','ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.code))e.preventDefault()});
+document.addEventListener('keyup',e=>{K[e.code]=0});
+document.addEventListener('mousedown',e=>{MB[e.button]=1});
+document.addEventListener('mouseup',e=>{MB[e.button]=0});
+document.addEventListener('mousemove',e=>{if(locked){mdx+=e.movementX;mdy+=e.movementY}});
+document.addEventListener('wheel',e=>{if(locked)scroll+=e.deltaY},{passive:true});
+document.addEventListener('pointerlockchange',()=>{locked=document.pointerLockElement===document.getElementById('gc')});
+function consumeInput(){const r={dx:mdx,dy:mdy,sc:scroll};mdx=mdy=scroll=0;return r}
+function reqLock(){document.getElementById('gc').requestPointerLock()}
+
+// ── Device Detection ────────────────────────────────────
+const IS_MOBILE=('ontouchstart' in window)||navigator.maxTouchPoints>0||/Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+if(IS_MOBILE){document.body.classList.add('mobile')}
+
+// ── Gamepad — Fortnite Combat Pro layout ────────────────
+// Fortnite Combat Pro (most popular competitive preset):
+//   Left  stick (0/1) = Move
+//   Right stick (2/3) = Look (dual-zone exponential curve)
+//   RT/R2  (btn 7)    = Fire
+//   LT/L2  (btn 6)    = ADS
+//   A/Cross (btn 0)   = Jump
+//   B/Circle (btn 1)  = Crouch
+//   X/Square (btn 2)  = Reload / Interact
+//   Y/Tri    (btn 3)  = Mantle (our closest equivalent)
+//   RB/R1   (btn 5)   = Next weapon
+//   LB/L1   (btn 4)   = Previous weapon
+//   L3/LS   (btn 10)  = Sprint toggle (+ auto-sprint at full deflection)
+//   R3/RS   (btn 11)  = Crouch (alt binding, common in Combat Pro)
+//   D-up    (btn 12)  = Slot 1
+//   D-right (btn 15)  = Next weapon
+//   D-left  (btn 14)  = Prev weapon
+//   Options (btn 9)   = Menu / Leave
+const GP={
+  // Fortnite dual-zone look curve:
+  // inner linear zone → outer exponential boost (the "Fortnite feel")
+  _inner:.10,   // inner deadzone
+  _linear:.50,  // linear→boost threshold
+  _boost:3.2,   // boost multiplier beyond threshold
+  baseSens:2.6, // base look speed (rad/s)
+  _prevBtn:[],
+  _wpnCd:0,
+  _gpFire:false,
+  _autoSprintMag:.82, // left-stick magnitude for auto-sprint (like Fortnite)
+
+  // Fortnite dual-zone exponential look curve
+  _curve(v){
+    const a=Math.abs(v);
+    if(a<this._inner)return 0;
+    const norm=(a-this._inner)/(1-this._inner);
+    let out;
+    if(norm<this._linear){
+      out=norm*(1/this._linear)*.38; // linear zone (slow precise aim)
+    } else {
+      const t=(norm-this._linear)/(1-this._linear);
+      out=.38+t*t*t*.62;            // cubic ramp in boost zone
+    }
+    return Math.sign(v)*out*this._baseSens;
+  },
+
+  poll(dt){
+    let pads=[];try{pads=navigator.getGamepads?navigator.getGamepads():[]}catch(e){return}
+    let gp=null;
+    for(const p of pads){if(p&&p.connected){gp=p;break}}
+    if(!gp)return;
+
+    const ax=(i)=>gp.axes[i]||0;
+    const btn=(i)=>!!(gp.buttons[i]&&gp.buttons[i].pressed);
+    const btnVal=(i)=>gp.buttons[i]?gp.buttons[i].value:0;
+    const justPressed=(i)=>btn(i)&&!this._prevBtn[i];
+
+    // ── Left stick → move ──────────────────────────────
+    const lx=ax(0),ly=ax(1);
+    const lmag=Math.hypot(lx,ly);
+    // Radial deadzone (Fortnite uses this, feels cleaner than per-axis)
+    const ld=.12;
+    const lfx=lmag>ld?lx*(lmag-ld)/(lmag*(1-ld)):0;
+    const lfy=lmag>ld?ly*(lmag-ld)/(lmag*(1-ld)):0;
+    K['KeyW']=K['KeyW']||(lfy<-.18?1:0);
+    K['KeyS']=K['KeyS']||(lfy>.18?1:0);
+    K['KeyA']=K['KeyA']||(lfx<-.18?1:0);
+    K['KeyD']=K['KeyD']||(lfx>.18?1:0);
+
+    // Auto-sprint: full left-stick push forward = sprint (Fortnite "Sprint by Default" feel)
+    if(lmag>this._autoSprintMag&&lfy<-.2)K['ShiftLeft']=1;
+
+    // ── Right stick → look (Fortnite dual-zone curve) ──
+    const rx=ax(2),ry=ax(3);
+    if(gState==='playing'){
+      camCtrl.tgtYaw  -=this._curve(rx)*dt;
+      const iy=cfg.invertY?1:-1;
+      camCtrl.tgtPitch +=this._curve(ry)*dt*.72*iy;
+      camCtrl.tgtPitch  =Math.max(-1.08,Math.min(.65,camCtrl.tgtPitch));
+    }
+
+    // ── RT/R2 = Fire ───────────────────────────────────
+    if(btnVal(7)>.4)this._gpFire=true;
+
+    // ── LT/L2 = ADS ────────────────────────────────────
+    MB[2]=btnVal(6)>.4?1:0;
+
+    // ── Face buttons ───────────────────────────────────
+    // A/Cross = Jump
+    K['Space']=K['Space']||(btn(0)?1:0);
+    // B/Circle = Crouch
+    K['ControlLeft']=K['ControlLeft']||(btn(1)?1:0);
+    // X/Square = Reload (justPressed for single trigger)
+    if(justPressed(2))K['KeyR']=1;
+    // Y/Triangle = Mantle
+    K['KeyF']=K['KeyF']||(btn(3)?1:0);
+
+    // ── Shoulders = weapon cycle ────────────────────────
+    this._wpnCd-=dt;
+    if(this._wpnCd<=0){
+      if(justPressed(5)||justPressed(15)){wScroll(1);this._wpnCd=.18}
+      if(justPressed(4)||justPressed(14)){wScroll(-1);this._wpnCd=.18}
+    }
+
+    // ── D-pad slots (Fortnite quick-select) ─────────────
+    if(justPressed(12))wSel(0); // D-up = slot 1
+    if(justPressed(13))wSel(1); // D-down = slot 2
+
+    // ── Stick clicks ────────────────────────────────────
+    // L3 = sprint toggle
+    K['ShiftLeft']=K['ShiftLeft']||(btn(10)?1:0);
+    // R3 = crouch (alt Combat Pro binding)
+    if(justPressed(11))K['ControlLeft']=1;
+
+    // ── Options/Start = leave ───────────────────────────
+    if(justPressed(9)&&gState==='playing')promptLeave();
+
+    this._prevBtn=gp.buttons.map(b=>b.pressed);
+  }
+};
+
+window.addEventListener('gamepadconnected',e=>{if(typeof notify==='function')notify('🎮 CONTROLLER — COMBAT PRO')});
+window.addEventListener('gamepaddisconnected',()=>{if(typeof notify==='function')notify('⚠ CONTROLLER DISCONNECTED')});
+
+// ── Mobile Controls ─────────────────────────────────────
+// Architecture mirrors Fortnite mobile:
+//   Left 40% screen  → floating virtual joystick
+//   Right 60% screen → drag-to-look, tap fires nothing (fire btn handles it)
+//   Action buttons   → inject into K/MB like keyboard/controller
+class MobileCtrl{
+  constructor(){
+    this.lx=0;this.ly=0;       // normalised joystick output [-1,1]
+    this._stickId=null;        // active touch id for joystick
+    this._lookId=null;         // active touch id for look drag
+    this._lookLastX=0;this._lookLastY=0;
+    this._fire=false;
+    this._enabled=false;
+    if(!IS_MOBILE)return;
+    this._enabled=true;
+    this._stickZone=document.getElementById('mob-stick-zone');
+    this._knob=document.getElementById('mob-knob');
+    this._lookZone=document.getElementById('mob-look');
+    this._R=this._stickZone.offsetWidth/2||75; // outer radius
+    this._setupJoystick();
+    this._setupLook();
+    this._setupButtons();
+  }
+
+  _setupJoystick(){
+    const sz=this._stickZone,r=this._R;
+    sz.addEventListener('touchstart',e=>{
+      e.preventDefault();
+      const t=e.changedTouches[0];
+      if(this._stickId!==null)return;
+      this._stickId=t.identifier;
+      this._moveKnob(t,sz,r);
+    },{passive:false});
+    document.addEventListener('touchmove',e=>{
+      if(this._stickId===null)return;
+      for(const t of e.changedTouches){
+        if(t.identifier===this._stickId){
+          e.preventDefault();
+          this._moveKnob(t,sz,r);
+          break;
+        }
+      }
+    },{passive:false});
+    document.addEventListener('touchend',e=>{
+      for(const t of e.changedTouches){
+        if(t.identifier===this._stickId){
+          this._stickId=null;this.lx=0;this.ly=0;
+          this._knob.style.left='50%';this._knob.style.top='50%';
+          break;
+        }
+      }
+    });
+  }
+
+  _moveKnob(touch,sz,r){
+    const rect=sz.getBoundingClientRect();
+    const cx=rect.left+r,cy=rect.top+r;
+    let dx=touch.clientX-cx,dy=touch.clientY-cy;
+    const dist=Math.hypot(dx,dy);
+    if(dist>r){dx*=r/dist;dy*=r/dist;}
+    this._knob.style.left=(r+dx)+'px';
+    this._knob.style.top =(r+dy)+'px';
+    // Apply radial deadzone to output
+    const dmag=Math.hypot(dx,dy)/r;
+    const dead=.14;
+    const norm=dmag>dead?(dmag-dead)/(1-dead):0;
+    const scale=dmag>0?norm/dmag:0;
+    this.lx=dx/r*scale;
+    this.ly=dy/r*scale;
+  }
+
+  _setupLook(){
+    const lz=this._lookZone;
+    lz.addEventListener('touchstart',e=>{
+      e.preventDefault();
+      const t=e.changedTouches[0];
+      if(this._lookId!==null)return;
+      this._lookId=t.identifier;
+      this._lookLastX=t.clientX;this._lookLastY=t.clientY;
+    },{passive:false});
+    lz.addEventListener('touchmove',e=>{
+      e.preventDefault();
+      for(const t of e.changedTouches){
+        if(t.identifier===this._lookId){
+          const dx=t.clientX-this._lookLastX;
+          const dy=t.clientY-this._lookLastY;
+          // Inject into the global mouse delta (same as mousemove)
+          mdx+=dx*1.8;mdy+=dy*1.8;
+          this._lookLastX=t.clientX;this._lookLastY=t.clientY;
+          break;
+        }
+      }
+    },{passive:false});
+    lz.addEventListener('touchend',e=>{
+      for(const t of e.changedTouches){
+        if(t.identifier===this._lookId){this._lookId=null;break}
+      }
+    });
+  }
+
+  _setupButtons(){
+    const bind=(id,down,up)=>{
+      const el=document.getElementById(id);if(!el)return;
+      el.addEventListener('touchstart',e=>{e.preventDefault();down&&down();},{passive:false});
+      el.addEventListener('touchend',e=>{e.preventDefault();up&&up();},{passive:false});
+    };
+    bind('mob-fire',
+      ()=>{MB[0]=1},
+      ()=>{MB[0]=0}
+    );
+    bind('mob-jump',
+      ()=>{K['Space']=1},
+      ()=>{K['Space']=0}
+    );
+    bind('mob-ads',
+      ()=>{MB[2]=1},
+      ()=>{MB[2]=0}
+    );
+    bind('mob-reload',
+      ()=>{wReload()},null
+    );
+    bind('mob-crouch',
+      ()=>{K['ControlLeft']=1},
+      ()=>{K['ControlLeft']=0}
+    );
+  }
+
+  // Called every frame from the game loop — injects stick into K
+  poll(){
+    if(!this._enabled)return;
+    const th=.18;
+    K['KeyW']=K['KeyW']||(this.ly<-th?1:0);
+    K['KeyS']=K['KeyS']||(this.ly>th?1:0);
+    K['KeyA']=K['KeyA']||(this.lx<-th?1:0);
+    K['KeyD']=K['KeyD']||(this.lx>th?1:0);
+    // Auto-sprint at full stick (Fortnite mobile auto-sprints)
+    if(Math.hypot(this.lx,this.ly)>.78&&this.ly<-th)K['ShiftLeft']=1;
+  }
+}
+let mobileCtrl=null;
+
+// ══════════════════════════════════════════════════════════
+//   RAGE-INSPIRED POST-PROCESSING PIPELINE
+//   Based on GTA V Graphics Study (Adrian Courrèges, 2015)
+//   and RAGE 7/8 rendering architecture research:
+//
+//   Pass 1 → Main scene to HDR buffer (+ depth texture)
+//   Pass 2 → Bright pass (soft knee threshold)
+//   Pass 3 → Bloom: 4-stage dual separable Gaussian blur
+//   Pass 4 → SSAO: hemisphere depth-diff ambient occlusion
+//   Pass 5 → SSAO blur (smooth the noise)
+//   Pass 6 → God Rays: radial blur from sun screen position
+//   Pass 7 → Composite:
+//              • Uncharted 2 filmic tonemap (GTA V exact operator)
+//              • GTA V color grade (warm shadows / cool highlights)
+//              • Subtle Depth of Field
+//              • Chromatic Aberration (lens fringing)
+//              • Film Grain
+//              • Vignette
+// ══════════════════════════════════════════════════════════
+
+const VS_QUAD=`varying vec2 vUv;void main(){vUv=uv;gl_Position=vec4(position,1.);}`;
+
+const FS_BRIGHT=`
+uniform sampler2D tDiffuse;uniform float threshold;varying vec2 vUv;
+void main(){
+  vec3 c=texture2D(tDiffuse,vUv).rgb;
+  float lum=dot(c,vec3(0.2126,0.7152,0.0722));
+  float knee=threshold*.5;
+  float rq=clamp(lum-threshold+knee,0.,2.*knee);
+  rq=(rq*rq)/(4.*knee+1e-5);
+  float w=max(rq,lum-threshold)/max(lum,1e-5);
+  gl_FragColor=vec4(c*w,1.);
+}`;
+
+const FS_BLUR=`
+uniform sampler2D tDiffuse;uniform vec2 resolution;uniform vec2 direction;varying vec2 vUv;
+void main(){
+  vec2 t=direction/resolution;vec4 c=vec4(0.);
+  c+=texture2D(tDiffuse,vUv-t*4.)*.0162;
+  c+=texture2D(tDiffuse,vUv-t*3.)*.054;
+  c+=texture2D(tDiffuse,vUv-t*2.)*.1216;
+  c+=texture2D(tDiffuse,vUv-t   )*.1945;
+  c+=texture2D(tDiffuse,vUv     )*.2270;
+  c+=texture2D(tDiffuse,vUv+t   )*.1945;
+  c+=texture2D(tDiffuse,vUv+t*2.)*.1216;
+  c+=texture2D(tDiffuse,vUv+t*3.)*.054;
+  c+=texture2D(tDiffuse,vUv+t*4.)*.0162;
+  gl_FragColor=c;
+}`;
+
+const FS_SSAO=`
+precision highp float;
+uniform sampler2D tDepth;uniform vec2 resolution;uniform float time;varying vec2 vUv;
+float linearize(float d){float n=.1,f=800.;return n*f/(f-d*(f-n));}
+float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
+void main(){
+  float depth=texture2D(tDepth,vUv).r;
+  if(depth>=.9999){gl_FragColor=vec4(1.);return;}
+  float linD=linearize(depth);
+  float texel=1./max(resolution.x,resolution.y);
+  float sr=clamp(20./linD,3.,22.)*texel;
+  float angle=hash(floor(vUv*resolution)+floor(time)*17.)*6.2832;
+  float ao=0.;
+  for(int i=0;i<16;i++){
+    float fi=float(i)/16.;
+    float r=sqrt(fi+.01)*sr;
+    float theta=float(i)*2.39996+angle;
+    vec2 off=vec2(cos(theta),sin(theta))*r;
+    off.x*=resolution.y/resolution.x;
+    float sd=linearize(texture2D(tDepth,clamp(vUv+off,vec2(0.),vec2(1.))).r);
+    float diff=linD-sd;
+    float rc=smoothstep(0.,1.,sr*resolution.x/max(abs(diff),.01));
+    ao+=(diff>.09?1.:0.)*rc;
+  }
+  ao=1.-ao/16.*.88;
+  gl_FragColor=vec4(vec3(ao),1.);
+}`;
+
+const FS_GODRAY=`
+uniform sampler2D tDiffuse;uniform vec2 sunPos;
+uniform float exposure,decay,density,weight;varying vec2 vUv;
+void main(){
+  vec2 tc=vUv;
+  vec2 delta=(tc-sunPos)*(1./64.*density);
+  float dc=1.;vec3 color=vec3(0.);
+  for(int i=0;i<64;i++){
+    tc-=delta;
+    vec3 s=texture2D(tDiffuse,clamp(tc,0.,1.)).rgb;
+    float lum=dot(s,vec3(0.2126,0.7152,0.0722));
+    s*=step(.52,lum);
+    color+=s*dc*weight;dc*=decay;
+  }
+  color*=exposure;
+  float d=length(vUv-sunPos);
+  color*=max(0.,1.-d*1.7);
+  gl_FragColor=vec4(color,1.);
+}`;
+
+// ══════════════════════════════════════════════════════════
+//   RAGE VOLUMETRIC CLOUD ENGINE
+//   Architecture based on:
+//   • GTA V RAGE: ring mesh + density/normal map (noise16_p, skydome.ytd)
+//     scrolled UV textures — horizon band approach
+//   • RDR2 RAGE 2018 (Fabian Bauer, SIGGRAPH 2019):
+//     voxelization + raymarching, worleynoise_tiling + cloudnoisevolume,
+//     Beer-Lambert transmittance, Henyey-Greenstein phase function,
+//     sky irradiance probe grid, paraboloid map cloud contribution
+//
+//   Our WebGL implementation:
+//   1. Inverse view-projection ray reconstruction (no mesh needed)
+//   2. Altitude slab intersection [y=75, y=210] (GTA V ring band)
+//   3. 3D procedural Worley (cellular/voronoi) — replaces worleynoise_tiling
+//   4. FBM smooth noise for large-scale coverage — replaces noise16_p
+//   5. Combined density = coverage - worley_erosion (RAGE approach)
+//   6. Height gradient shaping (thin at edges, thick in middle)
+//   7. Beer-Lambert optical depth accumulation
+//   8. 6-step light march toward sun for in-scattering
+//   9. Henyey-Greenstein forward+back scatter (g=0.65)
+//  10. Atmospheric horizon fade + sun color modulation
+//  11. Wind animation via UV scroll (GTA V's density map scroll)
+//  12. Renders at half-res, upsampled in composite (GTA V perf trick)
+// ══════════════════════════════════════════════════════════
+const FS_CLOUDS=`
+precision highp float;
+uniform vec3 camPos,sunDir;
+uniform mat4 invViewProj;
+uniform float time;
+uniform sampler2D tDepth;
+uniform vec2 resolution;
+varying vec2 vUv;
+
+// ── Constants ──────────────────────────────────────────────
+#define CLOUD_MIN   75.0
+#define CLOUD_MAX  210.0
+#define STEPS       48
+#define LIGHT_STEPS  6
+#define PI          3.14159265
+
+// ── 3D hash (fast, good distribution) ─────────────────────
+vec3 hash3(vec3 p){
+  p=vec3(dot(p,vec3(127.1,311.7,74.7)),
+         dot(p,vec3(269.5,183.3,246.1)),
+         dot(p,vec3(113.5,271.9,124.6)));
+  return fract(sin(p)*43758.5453123);
+}
+float hash1(vec3 p){return fract(sin(dot(p,vec3(127.1,311.7,74.7)))*43758.5453);}
+
+// ── Smooth value noise (trilinear, GTA V coverage base) ───
+float sNoise(vec3 p){
+  vec3 i=floor(p),f=fract(p);
+  f=f*f*(3.-2.*f);
+  return mix(
+    mix(mix(hash1(i),            hash1(i+vec3(1,0,0)),f.x),
+        mix(hash1(i+vec3(0,1,0)),hash1(i+vec3(1,1,0)),f.x),f.y),
+    mix(mix(hash1(i+vec3(0,0,1)),hash1(i+vec3(1,0,1)),f.x),
+        mix(hash1(i+vec3(0,1,1)),hash1(i+vec3(1,1,1)),f.x),f.y),f.z);
+}
+
+// ── Rotation matrix at global scope (GLSL ES 1.0: no mat3 inside function body) ──
+mat3 fbmRot=mat3(1.6,1.2,0.,-1.2,1.6,0.,0.,0.,1.);
+
+// ── FBM (5-octave, like RAGE's noise16_p multi-layer) ─────
+float fbm(vec3 p){
+  float v=0.;float a=.55;
+  for(int i=0;i<5;i++){v+=a*sNoise(p);p=fbmRot*p*2.+vec3(1.7,9.2,3.4);a*=.5;}
+  return v;
+}
+
+// ── Worley (cellular) noise — RAGE worleynoise_tiling ─────
+// Returns distance to nearest feature point (inverted = cloud-like)
+float worley(vec3 p){
+  vec3 i=floor(p);vec3 f=fract(p);float d=1.;
+  for(int x=-1;x<=1;x++)for(int y=-1;y<=1;y++)for(int z=-1;z<=1;z++){
+    vec3 n=vec3(float(x),float(y),float(z));
+    vec3 r=hash3(i+n)+n-f;
+    d=min(d,dot(r,r));
+  }
+  return 1.-sqrt(d);
+}
+
+// ── Cloud density (GTA V density map + RAGE Worley erosion) ──
+float cloudDensity(vec3 pos,float wt){
+  // Normalised height within cloud layer (RAGE height gradient)
+  float h=clamp((pos.y-CLOUD_MIN)/(CLOUD_MAX-CLOUD_MIN),0.,1.);
+  float hg=smoothstep(0.,.18,h)*smoothstep(1.,.55,h); // thin edges, full middle
+  if(hg<.001)return 0.;
+
+  // Wind scroll — GTA V animates density/normal map UVs for wind
+  float spd=wt*.0012;
+  vec3 windOff=vec3(spd*3.8,0.,spd*1.4);
+
+  // Large-scale coverage via FBM (replaces GTA V noise16_p density map)
+  vec3 bp=pos*.0022+windOff;
+  float cov=fbm(bp)*1.55-.45;
+  cov=clamp(cov,0.,1.);
+  if(cov<.001)return 0.;
+
+  // Detail erosion via Worley (replaces RAGE worleynoise_tiling)
+  vec3 dp=pos*.014+windOff*2.2;
+  float w1=worley(dp);
+  float w2=worley(dp*2.1+vec3(3.7,1.8,5.4))*.5;
+  float w3=worley(dp*4.3+vec3(7.2,3.1,2.6))*.25;
+  float erosion=(w1+w2+w3)/1.75;
+
+  // RAGE density combination: coverage minus erosion detail
+  float dens=cov-(.55-erosion*.55);
+  return max(0.,dens)*hg;
+}
+
+// ── Henyey-Greenstein phase function (RDR2 forward scatter) ──
+float hg(float cosA,float g){
+  float g2=g*g;
+  return(1.-g2)/(4.*PI*pow(1.+g2-2.*g*cosA,1.5));
+}
+
+// ── Light march toward sun (Beer-Lambert in-scatter) ──────
+float lightMarch(vec3 pos,float stepSz,float wt){
+  vec3 lp=pos;float transmit=1.;
+  for(int i=0;i<LIGHT_STEPS;i++){
+    lp+=sunDir*stepSz*2.2;
+    float ld=cloudDensity(lp,wt);
+    transmit*=exp(-ld*stepSz*2.2*72.);
+  }
+  return transmit;
+}
+
+// ── Reconstruct world-space ray from UV + inv view-proj ───
+vec3 worldRay(vec2 uv){
+  vec4 ndc=vec4(uv*2.-1.,1.,1.);
+  vec4 w=invViewProj*ndc;
+  return normalize(w.xyz/w.w-camPos);
+}
+
+void main(){
+  // Reconstruct ray
+  vec3 rd=worldRay(vUv);
+
+  // Cull: only sky pixels (depth at far plane)
+  float depth=texture2D(tDepth,vUv).r;
+  if(depth<.9999){gl_FragColor=vec4(0.,0.,0.,1.);return;}
+
+  // Only raymarch upward or at shallow angles into the cloud layer
+  if(rd.y<-.08){gl_FragColor=vec4(0.,0.,0.,1.);return;}
+
+  // ── Slab intersection ──────────────────────────────────
+  float tMin=0.;
+  float tMax=0.;
+  if(abs(rd.y)<.001){
+    if(camPos.y<CLOUD_MIN||camPos.y>CLOUD_MAX){gl_FragColor=vec4(0.,0.,0.,1.);return;}
+    tMin=0.;tMax=8000.;
+  } else {
+    float t1=(CLOUD_MIN-camPos.y)/rd.y;
+    float t2=(CLOUD_MAX-camPos.y)/rd.y;
+    tMin=max(0.,min(t1,t2));
+    tMax=max(t1,t2);
+  }
+  if(tMin>tMax||tMax<.0){gl_FragColor=vec4(0.,0.,0.,1.);return;}
+  tMax=min(tMax,12000.);
+
+  // ── Raymarching ────────────────────────────────────────
+  float stepSz=(tMax-tMin)/float(STEPS);
+  // Dither the start offset (blue-noise inspired) to break banding
+  float dither=fract(sin(dot(vUv,vec2(12.9898,78.233))+time*.13)*43758.5453);
+  float t=tMin+dither*stepSz;
+
+  float transmit=1.;    // Beer-Lambert accumulated transmittance
+  vec3  scatter=vec3(0.); // accumulated in-scattered light
+
+  // Sun & sky color (RAGE sky irradiance contribution)
+  float sunH=clamp(sunDir.y,.0,1.);
+  vec3 sunCol=mix(vec3(1.3,.65,.2),vec3(1.2,1.0,.85),sunH);// warm horizon → white zenith
+  vec3 skyCol=vec3(.35,.55,.82)*(.6+.4*sunH);              // ambient sky blue
+
+  float cosA=dot(rd,sunDir);
+  float phase=mix(hg(cosA,.65),hg(cosA,-.25),.35); // forward + slight backscatter
+
+  for(int i=0;i<STEPS;i++){
+    if(t>tMax)break;
+    vec3 pos=camPos+rd*t;
+    float dens=cloudDensity(pos,time);
+    if(dens>.001){
+      // Beer-Lambert step absorption
+      float dT=exp(-dens*stepSz*68.);
+      // Light energy from sun march
+      float le=lightMarch(pos,stepSz,time);
+      // In-scatter: sun direct + ambient sky
+      vec3 s=(sunCol*le*phase*4.2+skyCol*.38)*dens*stepSz;
+      scatter+=s*transmit;
+      transmit*=dT;
+      if(transmit<.01)break;
+    }
+    t+=stepSz;
+  }
+
+  // ── Horizon atmospheric fade (GTA V ring fades near horizon) ──
+  float horizFade=smoothstep(-.04,.22,rd.y);
+  float cloudOpacity=(1.-transmit)*horizFade;
+
+  // Soft-blend cloud edges
+  scatter*=horizFade;
+
+  // Output: rgb=cloud light, a=transmittance (1=sky, 0=full cloud)
+  gl_FragColor=vec4(scatter,1.-cloudOpacity);
+}`;
+
+// Composite: implements GTA V's Uncharted 2 filmic tonemapping
+// Formula reverse-engineered from GTA V shader bytecode by Adrian Courrèges (2015):
+// f(x) = ((x(Ax+BC)+DE)/(x(Ax+B)+DF)) - E/F  — the Hable/Uncharted 2 operator
+const FS_COMPOSITE=`
+precision highp float;
+uniform sampler2D tScene,tBloom,tSSAO,tGodRay,tDepth,tCloud;
+uniform vec2 resolution;
+uniform float time,bloomStr,ssaoStr,godRayStr,exposure,near,far;
+varying vec2 vUv;
+
+// ── Uncharted 2 Tonemapping — GTA V's exact operator ──────
+vec3 U2(vec3 x){const float A=.15,B=.5,C=.1,D=.2,E=.02,F=.3;return((x*(A*x+C*B)+D*E)/(x*(A*x+B)+D*F))-E/F;}
+vec3 tonemap(vec3 c){c*=exposure*2.;const float W=11.2;return U2(c)/U2(vec3(W));}
+
+// ── GTA V color grade: warm amber shadows, cool teal highlights ──
+vec3 colorGrade(vec3 c){
+  float lum=dot(c,vec3(0.2126,0.7152,0.0722));
+  vec3 shd=vec3(1.05,.93,.80),hlt=vec3(.88,.98,1.10);
+  c*=mix(shd,hlt,smoothstep(0.,.85,lum));
+  c=c*c*(3.-2.*c);          // contrast S-curve
+  c=mix(c,c*c,.10);
+  vec3 gray=vec3(dot(c,vec3(.2126,.7152,.0722)));
+  c=mix(gray,c,1.20);       // saturation boost
+  c=c*.95+.018;             // lift blacks slightly (GTA V doesn't crush)
+  return max(c,0.);
+}
+
+// ── Depth of Field (subtle, background blur) ──────────────
+vec3 dof(vec2 uv,float d){
+  float z=near*far/(far-d*(far-near));
+  float coc=clamp((z-22.)/70.,0.,1.);coc*=coc;
+  if(coc<.01)return texture2D(tScene,uv).rgb;
+  vec3 blurred=vec3(0.);float w=0.;
+  float r=coc*5./max(resolution.x,resolution.y);
+  for(int x=-2;x<=2;x++){for(int y=-2;y<=2;y++){
+    vec2 off=vec2(float(x),float(y))*r;
+    blurred+=texture2D(tScene,clamp(uv+off,0.,1.)).rgb;w+=1.;
+  }}
+  return mix(texture2D(tScene,uv).rgb,blurred/w,coc*.5);
+}
+
+void main(){
+  float depth=texture2D(tDepth,vUv).r;
+  vec3 c=dof(vUv,depth);
+  // Cloud layer (RAGE volumetric: blend over sky pixels)
+  vec4 cloud=texture2D(tCloud,vUv);
+  // cloud.rgb = in-scattered light, cloud.a = cloud opacity (0=sky, 1=full cloud)
+  c=mix(c,c*cloud.a+cloud.rgb,cloud.a);
+  // SSAO
+  float ao=texture2D(tSSAO,vUv).r;
+  c*=mix(1.,ao,ssaoStr);
+  // Bloom
+  c+=texture2D(tBloom,vUv).rgb*bloomStr;
+  // God Rays
+  c+=texture2D(tGodRay,vUv).rgb*godRayStr;
+  // Tonemap (Uncharted 2 / GTA V)
+  c=tonemap(c);
+  // Color grade (GTA V palette)
+  c=colorGrade(c);
+  // Chromatic Aberration (lens fringing at edges)
+  float caStr=.0028;
+  vec2 caOff=(vUv-.5)*caStr;
+  c.r=mix(c.r,texture2D(tScene,clamp(vUv+caOff,0.,1.)).r,.5);
+  c.b=mix(c.b,texture2D(tScene,clamp(vUv-caOff,0.,1.)).b,.5);
+  // Vignette (soft GTA V style)
+  float vign=smoothstep(.84,.30,length(vUv-.5)*1.42);
+  c*=mix(.68,1.,vign);
+  // Film grain
+  float grain=fract(sin(dot(vUv+fract(time*.07),vec2(12.9898,78.233)))*43758.5453)-.5;
+  c+=grain*.025;
+  // Gamma (linear → sRGB, we handle it ourselves)
+  c=pow(max(c,0.),vec3(1./2.2));
+  gl_FragColor=vec4(c,1.);
+}`;
+
+class RageFX{
+  constructor(renderer,w,h){
+    this.ren=renderer;this.enabled=true;this.time=0;
+    this.sunDir=new THREE.Vector3(80,90,60).normalize();
+    this._sunSP=new THREE.Vector2(.72,.78);
+    this._cam=new THREE.OrthographicCamera(-1,1,1,-1,0,1);
+    this._sc=new THREE.Scene();
+    this._mesh=new THREE.Mesh(new THREE.PlaneGeometry(2,2));
+    this._sc.add(this._mesh);
+    this._build(w,h);
+  }
+  _rt(w,h,opts={}){
+    return new THREE.WebGLRenderTarget(w,h,{
+      format:THREE.RGBAFormat,type:THREE.UnsignedByteType,
+      minFilter:THREE.LinearFilter,magFilter:THREE.LinearFilter,
+      depthBuffer:false,stencilBuffer:false,...opts});
+  }
+  _build(w,h){
+    this.w=w;this.h=h;
+    const hw=Math.max(1,w>>1),hh=Math.max(1,h>>1);
+    const dt=new THREE.DepthTexture(w,h);dt.type=THREE.UnsignedShortType;
+    const useHalf=this.ren.capabilities&&this.ren.capabilities.isWebGL2;
+    this.rtScene=new THREE.WebGLRenderTarget(w,h,{
+      format:THREE.RGBAFormat,type:useHalf?THREE.HalfFloatType:THREE.FloatType,
+      minFilter:THREE.LinearFilter,magFilter:THREE.LinearFilter,
+      depthTexture:dt,depthBuffer:true,stencilBuffer:false});
+    this.dt=dt;
+    this.rtBright=this._rt(hw,hh);
+    this.rtBloom=[this._rt(hw,hh),this._rt(hw,hh)];
+    this.rtSSAO=this._rt(hw,hh);
+    this.rtSSAO2=this._rt(hw,hh);
+    this.rtGodRay=this._rt(hw,hh);
+    this.rtCloud=this._rt(hw,hh);  // cloud layer at half-res (GTA V perf trick)
+  }
+  resize(w,h){
+    [this.rtScene,this.rtBright,...this.rtBloom,this.rtSSAO,this.rtSSAO2,this.rtGodRay,this.rtCloud].forEach(r=>r.dispose());
+    this._build(w,h);
+  }
+  _pass(fs,uniforms,rt){
+    const mat=new THREE.ShaderMaterial({uniforms,vertexShader:VS_QUAD,fragmentShader:fs,depthTest:false,depthWrite:false});
+    this._mesh.material=mat;
+    this.ren.setRenderTarget(rt||null);
+    this.ren.render(this._sc,this._cam);
+    mat.dispose();
+  }
+  updateSun(cam){
+    const sp=this.sunDir.clone().multiplyScalar(500).add(cam.position);
+    sp.project(cam);
+    this._sunSP.set(sp.x*.5+.5,sp.y*.5+.5);
+  }
+  render(scene,cam,dt){
+    this.time+=dt;
+    if(!this.enabled){this.ren.setRenderTarget(null);this.ren.render(scene,cam);return;}
+    const ren=this.ren,hw=Math.max(1,this.w>>1),hh=Math.max(1,this.h>>1);
+    const res=new THREE.Vector2(this.w,this.h),resH=new THREE.Vector2(hw,hh);
+    // 1. Scene → HDR buffer
+    ren.setRenderTarget(this.rtScene);ren.render(scene,cam);
+    // 2. Bright pass
+    this._pass(FS_BRIGHT,{tDiffuse:{value:this.rtScene.texture},threshold:{value:.62}},this.rtBright);
+    // 3. Bloom — 4 iterations of separable Gaussian blur
+    for(let i=0;i<4;i++){
+      this._pass(FS_BLUR,{tDiffuse:{value:i===0?this.rtBright.texture:this.rtBloom[1].texture},
+        resolution:{value:resH},direction:{value:new THREE.Vector2(1,0)}},this.rtBloom[0]);
+      this._pass(FS_BLUR,{tDiffuse:{value:this.rtBloom[0].texture},
+        resolution:{value:resH},direction:{value:new THREE.Vector2(0,1)}},this.rtBloom[1]);
+    }
+    // 4. SSAO + blur
+    this._pass(FS_SSAO,{tDepth:{value:this.dt},resolution:{value:res},time:{value:this.time}},this.rtSSAO);
+    this._pass(FS_BLUR,{tDiffuse:{value:this.rtSSAO.texture},resolution:{value:resH},direction:{value:new THREE.Vector2(1,0)}},this.rtSSAO2);
+    this._pass(FS_BLUR,{tDiffuse:{value:this.rtSSAO2.texture},resolution:{value:resH},direction:{value:new THREE.Vector2(0,1)}},this.rtSSAO);
+    // 5. God rays (volumetric light shafts)
+    this.updateSun(cam);
+    this._pass(FS_GODRAY,{tDiffuse:{value:this.rtScene.texture},sunPos:{value:this._sunSP},
+      exposure:{value:.2},decay:{value:.95},density:{value:.9},weight:{value:.4}},this.rtGodRay);
+    // 6. Volumetric cloud pass (RAGE raymarching engine — half-res)
+    const invVP=new THREE.Matrix4().multiplyMatrices(cam.projectionMatrix,cam.matrixWorldInverse).invert();
+    this._pass(FS_CLOUDS,{
+      camPos:{value:cam.position.clone()},
+      sunDir:{value:this.sunDir.clone()},
+      invViewProj:{value:invVP},
+      time:{value:this.time},
+      tDepth:{value:this.dt},
+      resolution:{value:res}
+    },this.rtCloud);
+    // 7. Composite → screen
+    this._pass(FS_COMPOSITE,{
+      tScene:{value:this.rtScene.texture},tBloom:{value:this.rtBloom[1].texture},
+      tSSAO:{value:this.rtSSAO.texture},tGodRay:{value:this.rtGodRay.texture},
+      tCloud:{value:this.rtCloud.texture},
+      tDepth:{value:this.dt},resolution:{value:res},time:{value:this.time},
+      bloomStr:{value:.20},ssaoStr:{value:.62},godRayStr:{value:.065},
+      exposure:{value:1.08},near:{value:cam.near},far:{value:cam.far}
+    },null);
+  }
+}
+let rageFX=null;
+
+// ── Three.js globals ─────────────────────────────────────
+let scene,ren,cam,clock;
+let camCtrl,player,collidables=[],enemies=[];
+let mmCtx,muzzleTimer=0,muzzleMesh;
+
+// ── Weapons ──────────────────────────────────────────────
+const WPNS=[
+  {name:'ASSAULT RIFLE',icon:'🔫',ammo:28,rsv:120,rar:'rr',rp:.024,ry:.012,fr:130,spr:.038},
+  {name:'SHOTGUN',      icon:'💥',ammo:6, rsv:30, rar:'ru',rp:.062,ry:.022,fr:680,spr:.11},
+  {name:'SNIPER RIFLE', icon:'🎯',ammo:5, rsv:20, rar:'re',rp:.085,ry:.01, fr:1100,spr:.004},
+  {name:'SMG',          icon:'⚡',ammo:35,rsv:140,rar:'rc',rp:.013,ry:.018,fr:75, spr:.055},
+  {name:'ROCKET LAUNCHER',icon:'🚀',ammo:1,rsv:4, rar:'rl',rp:.11, ry:.03, fr:1800,spr:.008},
+  {name:'PISTOL',       icon:'🔦',ammo:12,rsv:48, rar:'rc',rp:.018,ry:.014,fr:350,spr:.046},
+];
+const ws={slot:0,wpns:WPNS.map(w=>({...w})),lastFire:0,reloading:false};
+function wSel(i){if(i<0||i>=ws.wpns.length)return;ws.slot=i;updBar();showWpnName(ws.wpns[i].name)}
+function wScroll(d){let n=ws.slot+(d>0?1:-1);if(n>=ws.wpns.length)n=0;if(n<0)n=ws.wpns.length-1;wSel(n)}
+function wFire(){
+  const now=Date.now(),w=ws.wpns[ws.slot];
+  if(now-ws.lastFire<w.fr||w.ammo<=0||ws.reloading)return;
+  ws.lastFire=now;w.ammo--;
+  document.getElementById('am').textContent=w.ammo;
+  updBar();
+  camCtrl.addRecoil(w.rp,w.ry);
+  if(Math.random()>.42)showHit();
+  muzzleTimer=.055;
+  // Random kill notification
+  if(Math.random()>.8){notify('⬡ ENEMY ELIMINATED');showKillBanner()}
+}
+function wReload(){
+  if(ws.reloading)return;
+  const w=ws.wpns[ws.slot],base=WPNS[ws.slot].ammo;
+  if(w.rsv<=0||w.ammo===base)return;
+  ws.reloading=true;notify('↺ RELOADING...');
+  setTimeout(()=>{
+    const need=base-w.ammo,xfer=Math.min(need,w.rsv);
+    w.ammo+=xfer;w.rsv-=xfer;ws.reloading=false;
+    document.getElementById('am').textContent=w.ammo;
+    document.getElementById('ar').textContent='/ '+w.rsv;
+    updBar();
+  },1700)
+}
+
+// ── Camera Controller ────────────────────────────────────
+// THE CROWN JEWEL: Spring-based TPS camera
+// Features:
+//   1. Drag catch-up easing (spring on yaw/pitch)
+//   2. Multi-layer sway (breathing + walk bob + strafe roll + sprint lean)
+//   3. Soft arm position spring (position floats toward player)
+//   4. Landing impact punch
+//   5. Recoil springs (auto-return)
+//   6. ADS / sprint FOV springs
+//   7. Camera strafe tilt (Z-axis roll)
+//   8. Look-ahead (leads movement direction)
+//   9. Camera collision pull-in
+//  10. Muzzle flash position
+class CamCtrl {
+  constructor(camera,collidables){
+    this.cam=camera;this.col=collidables;
+
+    // ── Rotation springs (THE drag catch-up easing) ──
+    // targetYaw/Pitch = where mouse wants to go
+    // springs ease current toward target — feels like dragging through silk
+    this.yawSp=new Sp(cfg.springK,Math.sqrt(cfg.springK)*2.1);
+    this.pitchSp=new Sp(cfg.springK,Math.sqrt(cfg.springK)*2.1);
+    this.tgtYaw=0;this.tgtPitch=-.14;
+    this.yawSp.snap(0);this.pitchSp.snap(-.14);
+
+    // ── Arm position spring (softer, gives floaty body follow) ──
+    this.armSp=new Sp3(72,13);
+
+    // ── Offset springs (ADS transition) ──
+    this.offSp=new Sp3(200,28);
+    this.baseOff=new THREE.Vector3(.62,1.68,-3.1);
+    this.adsOff =new THREE.Vector3(.24,1.56,-1.55);
+    this.offSp.snap(.62,1.68,-3.1);
+
+    // ── Sway springs ──
+    this.rollSp=new Sp(48,8.5);   // strafe Z-roll
+    this.bobSp =new Sp(55,9);     // walk/sprint vertical bob
+    this.leanSp=new Sp(42,7.5);   // sprint forward lean
+    this.tiltSp=new Sp(52,10);    // lateral camera tilt
+
+    // ── Recoil springs ──
+    this.recP=new Sp(260,21);     // pitch kick
+    this.recY=new Sp(210,18);     // yaw kick
+
+    // ── Landing impact spring ──
+    this.landSp=new Sp(340,24);
+
+    // ── FOV spring ──
+    this.fovSp=new Sp(130,22);this.fovSp.snap(cfg.fov);
+
+    // ── Look-ahead springs ──
+    this.laX=new Sp(28,7);this.laZ=new Sp(22,6.5);
+
+    // State
+    this.isADS=false;this.isSprint=false;this.wasGround=true;
+    this.swayT=0;this.breathT=0;this.rc=new THREE.Raycaster();
+  }
+
+  applyMouse(dx,dy){
+    const s=cfg.sens*.00148,am=this.isADS?cfg.adsMult:1,iy=cfg.invertY?-1:1;
+    this.tgtYaw-=dx*s*am;
+    this.tgtPitch-=dy*s*am*iy;
+    this.tgtPitch=Math.max(-1.08,Math.min(.65,this.tgtPitch));
+  }
+
+  addRecoil(rp,ry){
+    this.recP.tgt+=rp;this.recY.tgt+=(Math.random()-.5)*ry*2;
+    setTimeout(()=>{this.recP.tgt*=.25;this.recY.tgt*=.25},85);
+  }
+
+  land(spd){this.landSp.tgt=-Math.min(spd*.016,.085);setTimeout(()=>this.landSp.tgt=0,110)}
+
+  setADS(v){
+    this.isADS=v;
+    this.fovSp.tgt=v?cfg.fov-23:cfg.fov;
+    document.getElementById('av').classList.toggle('on',v);
+    document.getElementById('xh').classList.toggle('ads',v);
+  }
+  setSprint(v){
+    this.isSprint=v;
+    if(!this.isADS)this.fovSp.tgt=v?cfg.fov+9:cfg.fov;
+  }
+
+  update(dt,ppos,pvel,grounded){
+    // Landing detection
+    if(this.wasGround===false&&grounded)this.land(Math.abs(pvel.y));
+    this.wasGround=grounded;
+
+    // ── Drag catch-up: spring stiffness from cfg ──
+    this.yawSp.k=cfg.springK;this.yawSp.d=Math.sqrt(cfg.springK)*2.1;
+    this.pitchSp.k=cfg.springK;this.pitchSp.d=Math.sqrt(cfg.springK)*2.1;
+    this.yawSp.tgt=this.tgtYaw;this.pitchSp.tgt=this.tgtPitch;
+    const Y=this.yawSp.tick(dt),P=this.pitchSp.tick(dt);
+
+    // Recoil auto-decay
+    this.recP.tgt*=Math.pow(.9,dt*60);this.recY.tgt*=Math.pow(.9,dt*60);
+    const rP=this.recP.tick(dt),rY=this.recY.tick(dt);
+
+    // ── Arm position spring ──
+    this.armSp.tgt(ppos.x,ppos.y,ppos.z);
+    const ap=this.armSp.tick(dt);
+    const armPos=new THREE.Vector3(ap.x,ap.y,ap.z);
+
+    // ── FOV ──
+    this.cam.fov=this.fovSp.tick(dt);this.cam.updateProjectionMatrix();
+
+    // ── Sway system ──
+    const swayOn=cfg.sway;
+    const spd2=pvel.x*pvel.x+pvel.z*pvel.z;
+    const moving=spd2>.18,sprint=this.isSprint;
+    this.swayT+=dt;this.breathT+=dt*.82;
+
+    // Strafe roll (Z)
+    const strafeSide=pvel.x;
+    this.rollSp.tgt=strafeSide*(sprint?.03:.018)*(swayOn?1:0);
+    const roll=this.rollSp.tick(dt);
+
+    // Vertical bob (Y) — dual frequency: slower for walk, faster for sprint
+    const bobFreq=sprint?11.2:6.8,bobAmp=sprint?.038:.018;
+    this.bobSp.tgt=moving?Math.sin(this.swayT*bobFreq)*bobAmp*(swayOn?1:0):0;
+    const bob=this.bobSp.tick(dt);
+
+    // Forward lean (sprint tilts camera slightly forward)
+    this.leanSp.tgt=sprint?.042:0;
+    const lean=this.leanSp.tick(dt);
+
+    // Camera tilt (separate from position sway — pure rotation roll)
+    this.tiltSp.tgt=-strafeSide*(sprint?.038:.022)*(swayOn?1:0);
+    const tilt=this.tiltSp.tick(dt);
+
+    // Breathing (always present, very subtle — makes scene feel alive)
+    const bx=Math.cos(this.breathT*.73)*.0022,by=Math.sin(this.breathT)*.0032;
+
+    // Landing impact
+    const land=this.landSp.tick(dt);
+    this.landSp.tgt*=Math.pow(.82,dt*60);
+
+    // Look-ahead (camera leads movement direction slightly — GTA V / RDR2 trick)
+    this.laX.tgt=pvel.x*.115*(sprint?1.45:1);
+    this.laZ.tgt=pvel.z*.04;
+    const lax=this.laX.tick(dt),laz=this.laZ.tick(dt);
+
+    // ── Offset spring (ADS/base) ──
+    const to=this.isADS?this.adsOff:this.baseOff;
+    this.offSp.tgt(to.x,to.y,to.z);
+    const off=this.offSp.tick(dt);
+
+    // ── Build camera transform ──
+    const qY=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),Y+rY);
+    const qP=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1,0,0),P+rP+lean*.28);
+    const qR=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,0,1),tilt);
+
+    // Offset: shoulder position + look-ahead + breathing + bob + landing
+    const offV=new THREE.Vector3(
+      off.x+lax+bx,
+      off.y+bob+by+land,
+      off.z
+    ).applyQuaternion(qY);
+
+    const want=armPos.clone().add(offV);
+
+    // ── Camera collision pull-in ──
+    const final=this.collide(armPos,want);
+    this.cam.position.copy(final);
+
+    // Apply full rotation
+    this.cam.quaternion.copy(qY).multiply(qP).multiply(qR);
+    // Extra sway rotation post-set
+    const qBob=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1,0,0),bob*.25+land*.38);
+    const qRoll=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),roll*.4);
+    this.cam.quaternion.multiply(qBob).multiply(qRoll);
+
+    return{yaw:Y,pitch:P};
+  }
+
+  collide(origin,want){
+    const dir=want.clone().sub(origin);
+    const dist=dir.length();if(dist<.01)return want;
+    this.rc.set(origin,dir.clone().normalize());this.rc.far=dist;
+    const h=this.rc.intersectObjects(this.col,false);
+    if(h.length){
+      const safe=h[0].point.clone().sub(dir.normalize().multiplyScalar(.18));
+      return safe;
+    }
+    return want;
+  }
+
+  getFwd(){
+    return new THREE.Vector3(0,0,-1).applyQuaternion(
+      new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),this.yawSp.val))
+  }
+  getRight(){
+    return new THREE.Vector3(1,0,0).applyQuaternion(
+      new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),this.yawSp.val))
+  }
+}
+
+// ── Player Controller ────────────────────────────────────
+class Player {
+  constructor(col){
+    this.col=col;this.pos=new THREE.Vector3(0,0,5);
+    this.vel=new THREE.Vector3();this.mesh=null;
+    // Movement
+    this.wSpd=5.4;this.sSpd=9.8;this.cSpd=2.6;this.jFrc=7.2;this.grav=-21;
+    this.acc=17;this.fric=11;this.air=.33;
+    // State
+    this.grnd=false;this.sprt=false;this.crouch=false;
+    this.jumping=false;this.mantling=false;this.canMnt=false;
+    this.mntTgt=new THREE.Vector3();this.mntSt=new THREE.Vector3();this.mntPrg=0;
+    this.prevGrnd=false;this.onLand=null;
+    this.ry=new THREE.Raycaster();this.rf=new THREE.Raycaster();this.rm=new THREE.Raycaster();
+    // Health
+    this.hp=100;this.shield=75;
+  }
+
+  setMesh(m){this.mesh=m}
+
+  update(dt){
+    if(this.mantling){this._mantle(dt);return}
+    const fwd=camCtrl.getFwd().setY(0).normalize();
+    const right=camCtrl.getRight().setY(0).normalize();
+    this.sprt=(K.ShiftLeft||K.ShiftRight)&&K.KeyW&&this.grnd;
+    this.crouch=(K.ControlLeft||K.ControlRight)&&this.grnd;
+    const spd=this.sprt?this.sSpd:this.crouch?this.cSpd:this.wSpd;
+    const accel=this.grnd?this.acc:this.acc*this.air;
+
+    let dir=new THREE.Vector3();
+    if(K.KeyW)dir.addScaledVector(fwd,1);
+    if(K.KeyS)dir.addScaledVector(fwd,-1);
+    if(K.KeyA)dir.addScaledVector(right,-1);
+    if(K.KeyD)dir.addScaledVector(right,1);
+    if(dir.length())dir.normalize();
+
+    this.vel.x+=dir.x*accel*dt;this.vel.z+=dir.z*accel*dt;
+    const hs=Math.hypot(this.vel.x,this.vel.z);
+    if(hs>spd){this.vel.x*=spd/hs;this.vel.z*=spd/hs}
+
+    // Friction
+    if(this.grnd){const fr=1-Math.min(1,this.fric*(dir.length()?.28:1)*dt);this.vel.x*=fr;this.vel.z*=fr}
+
+    // Gravity
+    if(!this.grnd)this.vel.y+=this.grav*dt;
+
+    // Jump
+    if(K.Space&&this.grnd&&!this.jumping){
+      this.vel.y=this.jFrc;this.grnd=false;this.jumping=true;
+      setTimeout(()=>this.jumping=false,280);
+    }
+
+    // Mantle check
+    this._checkMantle();
+    if(this.canMnt&&K.KeyF)this._startMantle();
+
+    this.pos.addScaledVector(this.vel,dt);
+    this._groundCheck();
+    if(!this.prevGrnd&&this.grnd){if(this.onLand)this.onLand(Math.abs(this.vel.y));this.vel.y=0}
+    this.prevGrnd=this.grnd;
+    if(this.vel.y>0)this._ceilCheck();
+    if(this.mesh){
+      this.mesh.position.copy(this.pos);
+      if(this.vel.length()>.4){
+        const a=Math.atan2(this.vel.x,this.vel.z);
+        this.mesh.rotation.y+=( a-this.mesh.rotation.y)*Math.min(1,10*dt);
+      }
+    }
+  }
+
+  _groundCheck(){
+    const o=this.pos.clone().add(new THREE.Vector3(0,.12,0));
+    this.ry.set(o,new THREE.Vector3(0,-1,0));this.ry.far=.35;
+    const h=this.ry.intersectObjects(this.col,false);
+    if(h.length&&this.pos.y<=h[0].point.y+.04){
+      this.pos.y=h[0].point.y;if(this.vel.y<0)this.vel.y=0;this.grnd=true;
+    } else this.grnd=false;
+  }
+
+  _ceilCheck(){
+    const o=this.pos.clone().add(new THREE.Vector3(0,1.7,0));
+    this.ry.set(o,new THREE.Vector3(0,1,0));this.ry.far=.28;
+    if(this.ry.intersectObjects(this.col,false).length)this.vel.y=Math.min(0,this.vel.y);
+  }
+
+  _checkMantle(){
+    const fwd=new THREE.Vector3(Math.sin(camCtrl.yawSp.val),0,Math.cos(camCtrl.yawSp.val)).negate();
+    const chest=this.pos.clone().add(new THREE.Vector3(0,.9,0));
+    this.rf.set(chest,fwd);this.rf.far=1.75;
+    const h=this.rf.intersectObjects(this.col,false);
+    if(h.length&&!this.grnd){
+      const topO=new THREE.Vector3(h[0].point.x,h[0].point.y+1.6,h[0].point.z);
+      this.rm.set(topO,new THREE.Vector3(0,-1,0));this.rm.far=2.2;
+      const th=this.rm.intersectObjects(this.col,false);
+      if(th.length){
+        const dh=th[0].point.y-this.pos.y;
+        if(dh>.25&&dh<2.6){
+          this.canMnt=true;
+          this.mntTgt.set(topO.x+fwd.x*.55,th[0].point.y+.05,topO.z+fwd.z*.55);
+          return;
+        }
+      }
+    }
+    this.canMnt=false;
+  }
+
+  _startMantle(){
+    this.mantling=true;this.mntPrg=0;this.mntSt.copy(this.pos);
+    this.vel.set(0,0,0);notify('◆ MANTLED');
+  }
+
+  _mantle(dt){
+    this.mntPrg=Math.min(1,this.mntPrg+dt*2.8);
+    const t=1-Math.pow(1-this.mntPrg,3); // ease-out cubic
+    this.pos.lerpVectors(this.mntSt,this.mntTgt,t);
+    if(this.mesh)this.mesh.position.copy(this.pos);
+    if(this.mntPrg>=1){this.mantling=false;this.grnd=true;this.vel.set(0,0,0)}
+  }
+}
+
+// ── World Builder ────────────────────────────────────────
+function buildWorld(){
+  scene=new THREE.Scene();
+  // GTA V uses denser atmospheric fog with a slightly warm tint
+  scene.fog=new THREE.FogExp2(0x0a0e1a,.011);
+
+  // ── GTA V-style lighting ──────────────────────────────────
+  // Warm golden sun (GTA V's signature warm directional)
+  const amb=new THREE.AmbientLight(0x1a2844,.55);scene.add(amb);
+  const sun=new THREE.DirectionalLight(0xffe0a0,3.2);
+  sun.position.set(80,90,60);sun.castShadow=cfg.shadows;
+  sun.shadow.mapSize.width=sun.shadow.mapSize.height=2048;
+  sun.shadow.camera.near=1;sun.shadow.camera.far=350;
+  sun.shadow.camera.left=sun.shadow.camera.bottom=-90;
+  sun.shadow.camera.right=sun.shadow.camera.top=90;
+  sun.shadow.bias=-.0004;scene.add(sun);
+  // Cool blue fill (sky bounce light — GTA V's characteristic contrast)
+  const fill=new THREE.DirectionalLight(0x4488cc,.55);fill.position.set(-60,20,-40);scene.add(fill);
+  // Warm back rim from horizon
+  const rim=new THREE.DirectionalLight(0xff9944,.22);rim.position.set(0,-8,80);scene.add(rim);
+  // Subtle ground bounce (warm)
+  const bounce=new THREE.HemisphereLight(0x3a4a5a,0x2a1808,.38);scene.add(bounce);
+
+  // ── Ground (slightly metallic for wet-road reflection) ───
+  const gm=new THREE.Mesh(
+    new THREE.PlaneGeometry(220,220,24,24),
+    new THREE.MeshStandardMaterial({color:0x131820,roughness:.78,metalness:.22})
+  );
+  gm.rotation.x=-Math.PI/2;gm.receiveShadow=true;scene.add(gm);collidables.push(gm);
+  scene.add(new THREE.GridHelper(220,44,0x1e2d40,0x0d161f));
+
+  // Cover objects [x,y,z, w,h,d, hex] — slightly higher roughness/metalness for PBR look
+  const cov=[
+    [10,1,-14,4,2,1.5,0x232b3a],[-12,1.5,-20,3,3,1.5,0x2a3048],
+    [0,2.5,-30,7,5,2,0x222838],[-8,1,-36,4,2,4,0x252e3c],
+    [20,3,-26,2,6,2,0x2e2e42],[-20,1.5,-12,9,3,1,0x232338],
+    [5,1,-43,5,2,5,0x272740],[-5,4,-52,3,8,3,0x2b334e],
+    [30,1,-41,1.5,2,8,0x282e3c],[-30,2,-46,4,4,2,0x222838],
+    [15,1,-56,11,2,1.5,0x2e2e42],[-15,2.5,-62,2,5,2,0x262636],
+    [0,1.5,-66,8,3,3,0x2a3048],[40,1,-20,3,2,13,0x232338],
+    [-40,3,-30,4,6,4,0x2a3048],[50,8,-52,9,16,9,0x1c2030],
+    [-50,10,-57,11,20,11,0x181c28],[44,5,-14,6,10,6,0x222030],
+    [-44,6,-10,5,12,5,0x1c2030],[8,.5,-19,3,1,3,0x262e40],
+    [-6,.75,-23,4,1.5,4,0x283048],[0,.5,-8,6,1,2,0x232838],
+    [12,2,-48,5,4,2,0x242a38],[-18,1,-52,6,2,6,0x1e2432],
+    [35,2.5,-62,4,5,4,0x22283a],[-35,1.5,-18,7,3,2,0x262e3c],
+  ];
+  cov.forEach(([x,y,z,w,h,d,c])=>{
+    const m=new THREE.Mesh(
+      new THREE.BoxGeometry(w,h,d),
+      new THREE.MeshStandardMaterial({color:c,roughness:.72,metalness:.28})
+    );
+    m.position.set(x,y,z);m.castShadow=true;m.receiveShadow=true;
+    scene.add(m);collidables.push(m);
+  });
+
+  // Enemies
+  for(let i=0;i<10;i++){
+    const a=(i/10)*Math.PI*2,r=18+Math.random()*22;
+    addEnemy(Math.cos(a)*r,1.1,Math.sin(a)*r-28);
+  }
+
+  // ── Atmospheric Sky (Rayleigh + Mie scattering, GTA V style) ──
+  const sky=new THREE.Mesh(
+    new THREE.SphereGeometry(450,32,16),
+    new THREE.ShaderMaterial({
+      uniforms:{sunDir:{value:new THREE.Vector3(80,90,60).normalize()}},
+      vertexShader:`varying vec3 vPos;void main(){vPos=position;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}`,
+      fragmentShader:`
+        uniform vec3 sunDir;varying vec3 vPos;
+        void main(){
+          vec3 dir=normalize(vPos);
+          float t=clamp(dir.y*.5+.5,0.,1.);
+          // Rayleigh sky gradient (deep navy to warm horizon)
+          vec3 zenith=vec3(.04,.06,.14);
+          vec3 horizon=vec3(.18,.24,.38);
+          vec3 sky=mix(horizon,zenith,pow(t,.55));
+          // Mie scattering haze (warm near sun)
+          float sun=max(0.,dot(dir,sunDir));
+          float mie=pow(sun,5.)*.28;
+          sky+=vec3(.9,.55,.2)*mie;
+          // Sun disk
+          float disk=pow(sun,380.)*.95;
+          sky+=vec3(1.,.92,.72)*disk;
+          // Horizon glow
+          float glow=pow(max(0.,1.-abs(dir.y)*4.),2.)*.22;
+          sky+=vec3(.95,.6,.2)*glow;
+          gl_FragColor=vec4(sky,1.);
+        }`,
+      side:THREE.BackSide
+    })
+  );
+  scene.add(sky);
+
+  // Muzzle flash
+  muzzleMesh=new THREE.Mesh(
+    new THREE.PlaneGeometry(.42,.42),
+    new THREE.MeshBasicMaterial({color:0xffaa00,transparent:true,opacity:0,depthWrite:false})
+  );
+  scene.add(muzzleMesh);
+}
+
+function addEnemy(x,y,z){
+  const mat=new THREE.MeshStandardMaterial({color:0x1a0000,emissive:0xff1133,emissiveIntensity:.42,roughness:.5});
+  const body=new THREE.Mesh(new THREE.BoxGeometry(.78,1.8,.58),mat);
+  body.position.set(x,y,z);body.castShadow=true;
+  body.userData={isEnemy:true,hp:100,phase:Math.random()*Math.PI*2};
+  const pl=new THREE.PointLight(0xff1133,.65,3.5);body.add(pl);
+  scene.add(body);enemies.push(body);collidables.push(body);
+}
+
+// ── Player Init ──────────────────────────────────────────
+function initPlayer(){
+  player=new Player(collidables);player.pos.set(0,0,6);
+  const grp=new THREE.Group();
+  const body=new THREE.Mesh(new THREE.CylinderGeometry(.34,.34,1.4,8),new THREE.MeshStandardMaterial({color:0x2c3d52,roughness:.7}));
+  body.castShadow=true;
+  const head=new THREE.Mesh(new THREE.SphereGeometry(.24,10,8),new THREE.MeshStandardMaterial({color:0x3d5068,roughness:.6}));
+  head.position.y=.86;body.add(head);
+  const gun=new THREE.Mesh(new THREE.BoxGeometry(.09,.11,.58),new THREE.MeshStandardMaterial({color:0x1a1a28,roughness:.35,metalness:.85}));
+  gun.position.set(.26,.28,-.38);body.add(gun);
+  grp.add(body);grp.position.copy(player.pos);scene.add(grp);
+  player.setMesh(grp);
+  player.onLand=(v)=>{if(v>2.8)camCtrl.land(v)};
+}
+
+// ── Three.js Setup ───────────────────────────────────────
+function initThree(){
+  const cv=document.getElementById('gc');
+  cam=new THREE.PerspectiveCamera(cfg.fov,window.innerWidth/window.innerHeight,.1,800);
+  ren=new THREE.WebGLRenderer({canvas:cv,antialias:cfg.shadows,powerPreference:'high-performance'});
+  ren.setSize(window.innerWidth,window.innerHeight);
+  ren.setPixelRatio(Math.min(window.devicePixelRatio,2));
+  ren.shadowMap.enabled=cfg.shadows;ren.shadowMap.type=THREE.PCFSoftShadowMap;
+  // Disable Three.js built-in tonemapping — RageFX handles it via Uncharted 2 operator
+  ren.toneMapping=THREE.NoToneMapping;
+  // Keep linear encoding — RageFX composite shader applies gamma correction itself
+  try{ren.outputEncoding=THREE.LinearEncoding}catch(e){}
+  clock=new THREE.Clock();
+  buildWorld();initPlayer();
+  camCtrl=new CamCtrl(cam,collidables);
+  camCtrl.armSp.snap(player.pos.x,player.pos.y,player.pos.z);
+  mmCtx=document.getElementById('mmc').getContext('2d');
+  // Init RAGE post-processing system
+  try{rageFX=new RageFX(ren,window.innerWidth,window.innerHeight)}catch(e){console.warn('RageFX init failed, falling back:',e);rageFX=null;}
+  window.addEventListener('resize',()=>{
+    const w=window.innerWidth,h=window.innerHeight;
+    cam.aspect=w/h;cam.updateProjectionMatrix();
+    ren.setSize(w,h);
+    if(rageFX)rageFX.resize(w,h);
+  });
+}
+
+// ── Item Bar ─────────────────────────────────────────────
+function buildBar(){
+  const el=document.getElementById('ib');el.innerHTML='';
+  ws.wpns.forEach((w,i)=>{
+    const s=document.createElement('div');
+    s.className=`is ${w.rar} ${i===ws.slot?'sel':''}`;s.id=`s${i}`;
+    s.innerHTML=`<div class="isn">${i+1}</div><div class="isi">${w.icon}</div><div class="isa">${w.ammo}</div><div class="irb"></div>`;
+    s.onclick=()=>wSel(i);
+    el.appendChild(s);
+    // Staggered entrance
+    s.style.cssText='opacity:0;transform:translateY(36px)';
+    setTimeout(()=>{s.style.transition='all .5s cubic-bezier(.34,1.56,.64,1)';s.style.cssText=''},90+i*55);
+  });
+}
+function updBar(){
+  ws.wpns.forEach((w,i)=>{
+    const s=document.getElementById(`s${i}`);if(!s)return;
+    s.classList.toggle('sel',i===ws.slot);
+    s.querySelector('.isa').textContent=w.ammo;
+  });
+  const w=ws.wpns[ws.slot];
+  document.getElementById('am').textContent=w.ammo;
+  document.getElementById('ar').textContent='/ '+w.rsv;
+}
+
+// ── HUD helpers ──────────────────────────────────────────
+let wnTimer;
+function showWpnName(n){
+  const el=document.getElementById('wn');
+  el.classList.remove('on');void el.offsetWidth;el.textContent=n;el.classList.add('on');
+  clearTimeout(wnTimer);wnTimer=setTimeout(()=>el.classList.remove('on'),2400);
+}
+function showHit(){
+  const h=document.getElementById('hmk');h.classList.remove('on');void h.offsetWidth;h.classList.add('on');
+}
+function showKillBanner(){
+  const b=document.getElementById('kb');b.classList.remove('on');void b.offsetWidth;b.classList.add('on');
+}
+function notify(txt){
+  const el=document.createElement('div');el.className='nf';el.textContent=txt;
+  document.getElementById('nw').appendChild(el);
+  setTimeout(()=>el.remove(),3000);
+}
+function updMinimap(){
+  const ctx=mmCtx,sz=130,sc=3.2,cx=sz/2,cy=sz/2;
+  ctx.clearRect(0,0,sz,sz);
+  ctx.fillStyle='rgba(0,0,0,.82)';ctx.beginPath();ctx.arc(cx,cy,sz/2,0,Math.PI*2);ctx.fill();
+  // grid lines
+  ctx.strokeStyle='rgba(0,212,255,.06)';ctx.lineWidth=.5;
+  for(let i=-sz;i<sz;i+=12){
+    const xi=cx+(i-(player.pos.x%12)*sc);if(xi>0&&xi<sz){ctx.beginPath();ctx.moveTo(xi,0);ctx.lineTo(xi,sz);ctx.stroke()}
+    const yi=cy+(i-(player.pos.z%12)*sc);if(yi>0&&yi<sz){ctx.beginPath();ctx.moveTo(0,yi);ctx.lineTo(sz,yi);ctx.stroke()}
+  }
+  // objects
+  collidables.forEach(o=>{
+    if(!o.geometry||o===player.mesh)return;
+    const rx=(o.position.x-player.pos.x)*sc+cx,rz=(o.position.z-player.pos.z)*sc+cy;
+    if(rx<4||rx>sz-4||rz<4||rz>sz-4)return;
+    ctx.fillStyle=o.userData.isEnemy?'#ff2244':'#2a3d55';ctx.fillRect(rx-2,rz-2,4,4);
+  });
+  // player arrow
+  ctx.save();ctx.translate(cx,cy);ctx.rotate(-camCtrl.yawSp.val);
+  ctx.fillStyle='#00d4ff';ctx.beginPath();ctx.moveTo(0,-7);ctx.lineTo(5,6);ctx.lineTo(-5,6);ctx.closePath();
+  ctx.shadowColor='#00d4ff';ctx.shadowBlur=7;ctx.fill();ctx.restore();
+  ctx.strokeStyle='rgba(0,212,255,.18)';ctx.lineWidth=1;ctx.beginPath();ctx.arc(cx,cy,sz/2-1,0,Math.PI*2);ctx.stroke();
+}
+
+// ── Settings UI ──────────────────────────────────────────
+function stab(id,el){
+  document.querySelectorAll('.stab').forEach(b=>b.classList.remove('on'));
+  document.querySelectorAll('.ss').forEach(s=>s.classList.remove('on'));
+  el.classList.add('on');document.getElementById('tab-'+id).classList.add('on');
+}
+function setQ(v,b){b.closest('.qo').querySelectorAll('.qb').forEach(x=>x.classList.remove('on'));b.classList.add('on');
+  const pr={low:.5,med:.75,high:1,ultra:1.5};ren&&ren.setPixelRatio(Math.min(window.devicePixelRatio,pr[v]*2));
+  ren&&(ren.shadowMap.enabled=v!=='low');
+}
+function setQ2(v,b){b.closest('.qo').querySelectorAll('.qb').forEach(x=>x.classList.remove('on'));b.classList.add('on')}
+function tog(k){
+  const el=document.getElementById('tg-'+k);if(!el)return;
+  el.classList.toggle('on');const on=el.classList.contains('on');
+  if(k==='shad')cfg.shadows=on,ren&&(ren.shadowMap.enabled=on);
+  if(k==='sway')cfg.sway=on;
+  if(k==='iy')cfg.invertY=on;
+}
+function openSettings(){document.getElementById('sp').classList.add('on')}
+function closeSettings(){document.getElementById('sp').classList.remove('on')}
+
+// ── Game State ───────────────────────────────────────────
+let gState='loading';
+
+function startGame(){
+  const mm=document.getElementById('mm');
+  mm.style.transition='opacity .5s ease,transform .5s ease';
+  mm.style.opacity='0';mm.style.transform='scale(1.06)';
+  setTimeout(()=>{
+    mm.style.display='none';
+    const cv=document.getElementById('gc');cv.style.display='block';
+    document.getElementById('hud').classList.add('on');
+    document.getElementById('ib').classList.add('on');
+    gState='playing';buildBar();
+    // stagger HUD elements in
+    ['.hw','.aw','.mm2','.lb2'].forEach((sel,i)=>{
+      const el=document.querySelector(sel);if(!el)return;
+      el.style.cssText='opacity:0;transform:translateY(16px)';
+      setTimeout(()=>{el.style.transition='all .6s cubic-bezier(.16,1,.3,1)';el.style.cssText=''},180+i*90);
+    });
+    showWpnName(ws.wpns[ws.slot].name);
+    notify('◆ DEPLOYED — WATCH YOUR SIX');
+    if(IS_MOBILE){
+      // Mobile: no pointer lock needed, show virtual controls
+      document.getElementById('mob-ctrl').style.display='block';
+      // Prevent page scroll/zoom during gameplay
+      document.body.style.overflow='hidden';
+      document.body.style.touchAction='none';
+    } else {
+      reqLock();
+    }
+  },480);
+}
+
+function promptLeave(){
+  document.exitPointerLock();
+  document.getElementById('lc').classList.add('on');
+}
+function cancelLeave(){
+  document.getElementById('lc').classList.remove('on');
+  if(gState==='playing')reqLock();
+}
+function doLeave(){
+  document.getElementById('lc').classList.remove('on');
+  document.getElementById('hud').classList.remove('on');
+  document.getElementById('ib').classList.remove('on');
+  document.getElementById('gc').style.display='none';
+  gState='menu';
+  const mm=document.getElementById('mm');
+  mm.style.display='flex';mm.style.opacity='0';mm.style.transform='scale(.96)';
+  requestAnimationFrame(()=>{
+    mm.style.transition='all .5s cubic-bezier(.16,1,.3,1)';
+    mm.style.opacity='1';mm.style.transform='scale(1)';
+  });
+  player.pos.set(0,0,6);player.vel.set(0,0,0);
+  camCtrl.armSp.snap(0,0,6);camCtrl.yawSp.snap(0);camCtrl.pitchSp.snap(-.14);
+  camCtrl.tgtYaw=0;camCtrl.tgtPitch=-.14;
+}
+function quitMenu(){
+  const mm=document.getElementById('mm');
+  mm.style.transition='opacity .4s,transform .4s';mm.style.opacity='0';mm.style.transform='scale(.94)';
+  setTimeout(()=>{mm.innerHTML='<div style="font-family:var(--font-d);font-size:11px;letter-spacing:.5em;color:rgba(0,212,255,.3)">GOODBYE, SOLDIER</div>'},400);
+}
+
+// ── Main Loop ────────────────────────────────────────────
+function loop(){
+  requestAnimationFrame(loop);
+  const dt=Math.min(clock.getDelta(),.05);
+  if(gState!=='playing'){
+    if(rageFX)rageFX.render(scene,cam,dt);
+    else if(ren)ren.render(scene,cam);
+    return
+  }
+
+  // Poll gamepad + mobile BEFORE consuming input so they can inject into K/MB
+  GP.poll(dt);
+  if(mobileCtrl)mobileCtrl.poll();
+
+  const inp=consumeInput();
+  if(locked||IS_MOBILE){camCtrl.applyMouse(inp.dx,inp.dy)}
+  const arrowSpeed=2.2;
+  if(K.ArrowLeft) camCtrl.tgtYaw+=arrowSpeed*dt;
+  if(K.ArrowRight)camCtrl.tgtYaw-=arrowSpeed*dt;
+  if(inp.sc)wScroll(inp.sc);
+  for(let i=0;i<6;i++)if(K[`Digit${i+1}`])wSel(i);
+  if(K.KeyR)wReload();
+
+  const ads=MB[2];camCtrl.setADS(ads);
+
+  // Fire: mouse left-click OR controller RT (injected into _gpFire by GP.poll)
+  if(GP._gpFire||MB[0])wFire();
+  GP._gpFire=false;
+
+  player.update(dt);
+  camCtrl.setSprint(player.sprt);
+  camCtrl.update(dt,player.pos,player.vel,player.grnd);
+
+  // UI sync
+  document.getElementById('si2').classList.toggle('on',player.sprt);
+  document.getElementById('sv2').classList.toggle('on',player.sprt);
+  document.getElementById('mprompt').classList.toggle('on',player.canMnt);
+
+  // Muzzle flash
+  if(muzzleTimer>0){
+    muzzleTimer-=dt;
+    const t=muzzleTimer/.055;muzzleMesh.material.opacity=t*.85;
+    const qy=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),camCtrl.yawSp.val);
+    const off=new THREE.Vector3(.28,1.38,-.95).applyQuaternion(qy);
+    muzzleMesh.position.copy(player.pos).add(off);muzzleMesh.lookAt(cam.position);
+  } else muzzleMesh.material.opacity=0;
+
+  // Enemy bob
+  const t=Date.now()*.002;
+  enemies.forEach(e=>{
+    e.position.y=1.1+Math.sin(t+e.userData.phase)*.065;
+    e.rotation.y+=dt*.28;
+  });
+
+  updMinimap();
+  // Route through RAGE post-processing pipeline
+  if(rageFX)rageFX.render(scene,cam,dt);
+  else ren.render(scene,cam);
+}
+
+// ── Canvas click to re-lock (desktop only) ───────────────
+document.getElementById('gc').addEventListener('click',()=>{
+  if(gState==='playing'&&!locked&&!IS_MOBILE)reqLock();
+});
+
+// ── Boot ─────────────────────────────────────────────────
+initThree();
+mobileCtrl=new MobileCtrl();
+setTimeout(()=>{
+  const ls=document.getElementById('ls');
+  ls.style.transition='opacity .6s ease';ls.style.opacity='0';
+  setTimeout(()=>{
+    ls.style.display='none';
+    const mm=document.getElementById('mm');
+    mm.style.display='flex';
+    if(IS_MOBILE)notify('📱 Touch controls active');
+  },600);
+},2000);
+loop();
+</script>
+</body>
+</html
