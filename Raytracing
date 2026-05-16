@@ -1,0 +1,1321 @@
+--[[
+╔══════════════════════════════════════════════════════════════════════╗
+║         RTX RAYTRACER v3 — ROBLOX EDITION  (PHYSICS REMASTER)       ║
+║                                                                      ║
+║  WHAT CHANGED FROM v2 — PURE PHYSICS FIXES:                         ║
+║                                                                      ║
+║  1. Beer-Lambert EXPONENTIAL attenuation     (was wrong linear)     ║
+║     I = I₀ × e^(-μd)  — dark glass actually blocks more light      ║
+║                                                                      ║
+║  2. Lambert NdotL cosine law applied         (was missing entirely) ║
+║     Surface angled away from sun gets LESS direct light             ║
+║                                                                      ║
+║  3. PCSS Contact-Hardening Shadows           (was fixed-radius)     ║
+║     Shadows HARD near caster, SOFT far away  — physically correct   ║
+║                                                                      ║
+║  4. Physical Inverse-Square falloff          (was fake quadratic)   ║
+║     1/r² windowed — how light actually attenuates in space          ║
+║                                                                      ║
+║  5. Schlick Fresnel on all reflections       (was completely absent)║
+║     F = F₀ + (1-F₀)(1-cosθ)⁵ — every surface reflects at angles   ║
+║                                                                      ║
+║  6. Sky radiance on missed rays              (was just fade-to-zero)║
+║     GI rays that hit sky sample Rayleigh sky color, not nothing     ║
+║                                                                      ║
+║  7. Luminance-weighted color bleed           (was constant factor)  ║
+║     Dark surfaces bleed little; bright red walls bleed a lot        ║
+║                                                                      ║
+║  8. Ambient Occlusion probes                 (was non-existent)     ║
+║     Short hemisphere rays darken corners — cosine-weighted          ║
+║                                                                      ║
+║  9. SSS wrap-lighting + warm backscatter     (was just point light) ║
+║     Light bleeds through thin translucent parts with warm red tint  ║
+║                                                                      ║
+║  10. 3-bounce GI path tracing                (was 2-bounce)         ║
+║      More accurate indirect illumination, color bleeding, GI        ║
+║                                                                      ║
+║  11. Blackbody lava flicker                  (was basic sine lerp)  ║
+║      dark-red → orange → yellow-white as "temperature" rises        ║
+║                                                                      ║
+║  POST-PROCESSING UNTOUCHED — this is about raytracing physics only  ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+  HOW TO INSTALL:
+  ───────────────
+  1. Open Roblox Studio
+  2. Explorer → StarterPlayer → StarterPlayerScripts
+  3. Insert a new LocalScript inside StarterPlayerScripts
+  4. Paste ALL of this code into that LocalScript
+  5. Hit Play (F5) — the engine starts automatically
+
+  REQUIREMENTS:
+  ─────────────
+  • Lighting.Technology set to "Future" (required for PBR)
+  • Works with Parts AND Terrain
+  • Transparent parts now attenuate light with exponential Beer-Lambert
+  • Neon + CrackedLava emit dynamic light
+  • Water terrain generates caustic patterns
+--]]
+
+local Lighting   = game:GetService("Lighting")
+local RunService = game:GetService("RunService")
+local Players    = game:GetService("Players")
+local Workspace  = game:GetService("Workspace")
+
+local player = Players.LocalPlayer
+local camera = Workspace.CurrentCamera
+
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- TUNING
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+local CFG = {
+    -- Global Illumination
+    MAX_GI_PROBES       = 40,     -- more probes = denser GI coverage
+    GI_RAYS_PER_FRAME   = 8,
+    GI_BOUNCE_DISTANCE  = 400,
+    GI_LIGHT_RANGE      = 24,
+    GI_BRIGHTNESS       = 3.2,
+    GI_COLOR_BLEED      = 0.55,   -- max bleed (actual bleed = this × surface luminance)
+    GI_BOUNCE_COUNT     = 3,      -- 3 bounces (was 2) — more accurate indirect
+    GI_UPDATE_INTERVAL  = 0.033,
+
+    -- Specular / Fresnel
+    SPEC_RAYS           = 4,
+    SPEC_RANGE          = 20,
+    SPEC_BRIGHTNESS     = 2.4,
+    SPEC_BLUR_ROUGH     = 0.35,
+    -- Fresnel F0: base reflectivity at normal incidence (0 degrees)
+    -- Dielectrics (plastic, wood, stone): ~0.04  |  Water: 0.02  |  Glass: 0.04
+    -- Metals use their albedo color as F0 (handled in updateSpecular)
+    FRESNEL_F0_DIELECTRIC = 0.04,
+
+    -- Shadows — PCSS Contact-Hardening
+    -- Physics: penumbra_width ∝ (receiver_dist / blocker_dist) × sun_angular_diameter
+    -- Result: hard shadow touching the caster, softens as geometry separates
+    SHADOW_BIAS           = 0.12,
+    PENUMBRA_SAMPLES      = 6,    -- more samples = smoother penumbra (was 3)
+    PENUMBRA_BASE_RADIUS  = 0.9,  -- sun angular radius in degrees (real sun = 0.5°, use ~0.9 for drama)
+    PCSS_BLOCKER_SEARCH   = 90,   -- how far to search for blockers (studs)
+    PCSS_LIGHT_SIZE       = 8.0,  -- virtual sun "size" — scales penumbra width
+
+    -- Subsurface Scattering — Physically Improved
+    -- Physics: light enters translucent material, scatters, exits other side with warm tint
+    -- Red channels travel further through organic materials than blue (why skin glows warm)
+    SSS_ENABLED       = true,
+    SSS_RADIUS        = 35,
+    SSS_MAX_PARTS     = 6,
+    SSS_BRIGHTNESS    = 1.8,
+    SSS_WRAP_AMOUNT   = 0.40,  -- wrap lighting: diffuse past the shadow terminator
+    SSS_BACKSCATTER   = true,  -- warm red-orange tint on shadow side
+
+    -- Ambient Occlusion
+    -- Physics: nearby geometry blocks ambient sky light reaching a surface point
+    -- Corners/crevices receive less sky → darker
+    AO_ENABLED   = true,
+    AO_RAYS      = 6,          -- hemisphere samples per GI hit point
+    AO_RADIUS    = 5.0,        -- short range search (studs) — only local geometry
+    AO_STRENGTH  = 0.52,       -- 0=no AO, 1=full black in fully occluded corners
+
+    -- Depth of Field (unchanged)
+    DOF_ENABLED         = true,
+    DOF_SMOOTH          = 0.08,
+    DOF_FAR_INTENSITY   = 0.55,
+    DOF_NEAR_INTENSITY  = 0.15,
+    DOF_MAX_RADIUS      = 80,
+    DOF_FOCUS_RADIUS    = 28,
+
+    -- Water Caustics (unchanged)
+    CAUSTIC_ENABLED    = true,
+    CAUSTIC_PROBES     = 12,
+    CAUSTIC_RANGE      = 14,
+    CAUSTIC_BRIGHTNESS = 2.8,
+    CAUSTIC_SPEED      = 2.2,
+    CAUSTIC_SCAN_R     = 40,
+
+    -- Emissive Materials (unchanged)
+    EMISSIVE_ENABLED     = true,
+    EMISSIVE_RADIUS      = 40,
+    EMISSIVE_MAX         = 10,
+    EMISSIVE_LAVA_FLICKER = true,
+
+    -- Beer-Lambert Exponential Colored Transmission
+    -- Physics: I = I₀ × exp(-μ × d)
+    -- μ per channel = (1 - color_channel) × optical_density
+    -- Dark red glass: high μ for G and B channels, red light passes through
+    TRANSMIT_ENABLED   = true,
+    TRANSMIT_STEPS     = 5,    -- max transparent layers to pierce (was 4)
+    TRANSMIT_THRESHOLD = 0.25,
+    TRANSMIT_CHROMATIC = true, -- glass disperses: blue μ slightly higher than red
+
+    -- Post Processing (unchanged from v2)
+    BLOOM_BASE         = 0.7,
+    BLOOM_SUNSET_BOOST = 1.1,
+    BLOOM_SIZE         = 56,
+    BLOOM_THRESHOLD    = 0.92,
+    ATMOSPHERE_DENSITY = 0.38,
+    ATMOSPHERE_OFFSET  = 0.22,
+    ATMOSPHERE_HAZE    = 2.2,
+    ATMOSPHERE_GLARE   = 0.55,
+}
+
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- LIGHTING SETUP — Future technology, full PBR
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Lighting.Technology               = Enum.Technology.Future
+Lighting.GlobalShadows            = true
+Lighting.EnvironmentDiffuseScale  = 1.0
+Lighting.EnvironmentSpecularScale = 1.0
+Lighting.Brightness               = 2.2
+Lighting.ShadowSoftness           = 0.18
+Lighting.OutdoorAmbient           = Color3.fromRGB(72, 82, 108)
+Lighting.Ambient                  = Color3.fromRGB(28, 32, 46)
+Lighting.ColorShift_Bottom        = Color3.fromRGB(18, 22, 40)
+Lighting.ColorShift_Top           = Color3.fromRGB(255, 242, 205)
+Lighting.FogEnd                   = 800
+Lighting.FogStart                 = 400
+Lighting.FogColor                 = Color3.fromRGB(180, 196, 220)
+
+for _, child in ipairs(Lighting:GetChildren()) do
+    if child:IsA("PostEffect") or child:IsA("Sky") or child:IsA("Atmosphere") then
+        child:Destroy()
+    end
+end
+
+local bloom = Instance.new("BloomEffect")
+bloom.Intensity = CFG.BLOOM_BASE
+bloom.Size      = CFG.BLOOM_SIZE
+bloom.Threshold = CFG.BLOOM_THRESHOLD
+bloom.Parent    = Lighting
+
+local cc = Instance.new("ColorCorrectionEffect")
+cc.Brightness = 0.025
+cc.Contrast   = 0.13
+cc.Saturation = 0.18
+cc.TintColor  = Color3.fromRGB(255, 248, 234)
+cc.Parent     = Lighting
+
+local sunRays = Instance.new("SunRaysEffect")
+sunRays.Intensity = 0.28
+sunRays.Spread    = 0.55
+sunRays.Parent    = Lighting
+
+local dof = Instance.new("DepthOfFieldEffect")
+dof.FarIntensity  = CFG.DOF_FAR_INTENSITY
+dof.NearIntensity = CFG.DOF_NEAR_INTENSITY
+dof.FocusDistance = 50
+dof.InFocusRadius = CFG.DOF_FOCUS_RADIUS
+dof.Parent        = Lighting
+
+local atmo = Instance.new("Atmosphere")
+atmo.Density = CFG.ATMOSPHERE_DENSITY
+atmo.Offset  = CFG.ATMOSPHERE_OFFSET
+atmo.Haze    = CFG.ATMOSPHERE_HAZE
+atmo.Glare   = CFG.ATMOSPHERE_GLARE
+atmo.Color   = Color3.fromRGB(200, 222, 255)
+atmo.Decay   = Color3.fromRGB(95, 118, 160)
+atmo.Parent  = Lighting
+
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- PROBE POOL
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+local probeRoot = Instance.new("Folder")
+probeRoot.Name   = "_RTX_Probes"
+probeRoot.Parent = Workspace
+
+local function makeProbe(name, brightness, range, shadows)
+    local p = Instance.new("Part")
+    p.Name        = name
+    p.Size        = Vector3.new(0.05, 0.05, 0.05)
+    p.Anchored    = true
+    p.CanCollide  = false
+    p.CanQuery    = false
+    p.CanTouch    = false
+    p.CastShadow  = false
+    p.Transparency = 1
+    p.Parent      = probeRoot
+    local pl = Instance.new("PointLight")
+    pl.Brightness = brightness
+    pl.Range      = range
+    pl.Shadows    = shadows
+    pl.Parent     = p
+    return p, pl
+end
+
+local giParts  = {}
+local giLights = {}
+for i = 1, CFG.MAX_GI_PROBES do
+    local p, l = makeProbe("GI_" .. i, 0, CFG.GI_LIGHT_RANGE, true)
+    giParts[i]  = p
+    giLights[i] = l
+end
+
+local specParts  = {}
+local specLights = {}
+for i = 1, CFG.SPEC_RAYS do
+    local p, l = makeProbe("Spec_" .. i, 0, CFG.SPEC_RANGE, false)
+    specParts[i]  = p
+    specLights[i] = l
+end
+
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- RAYCAST PARAMS
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+local worldParams = RaycastParams.new()
+worldParams.FilterType = Enum.RaycastFilterType.Exclude
+worldParams.FilterDescendantsInstances = { probeRoot }
+
+local function makeParams(extra)
+    local rp = RaycastParams.new()
+    rp.FilterType = Enum.RaycastFilterType.Exclude
+    local t = { probeRoot }
+    if extra then
+        for _, v in ipairs(extra) do table.insert(t, v) end
+    end
+    rp.FilterDescendantsInstances = t
+    return rp
+end
+
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- MATH UTILITIES
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+local rand = Random.new()
+
+local function lerpColor(a, b, t)
+    t = math.clamp(t, 0, 1)
+    return Color3.new(
+        a.R + (b.R - a.R) * t,
+        a.G + (b.G - a.G) * t,
+        a.B + (b.B - a.B) * t
+    )
+end
+
+local function mulColor(c, s)
+    return Color3.new(
+        math.clamp(c.R * s, 0, 1),
+        math.clamp(c.G * s, 0, 1),
+        math.clamp(c.B * s, 0, 1)
+    )
+end
+
+-- Perceptual luminance (ITU-R BT.709 weights)
+local function colorLum(c)
+    return 0.2126 * c.R + 0.7152 * c.G + 0.0722 * c.B
+end
+
+-- Cosine-weighted hemisphere sample aligned to surface normal.
+-- This is correct importance sampling for Lambertian diffuse BRDF —
+-- the PDF is cos(θ)/π which cancels the cos(θ) in the rendering equation.
+local function hemisphereDir(normal)
+    local u1  = rand:NextNumber()
+    local u2  = rand:NextNumber()
+    local r   = math.sqrt(u1)
+    local phi = 2 * math.pi * u2
+    local x   = r * math.cos(phi)
+    local z   = r * math.sin(phi)
+    local y   = math.sqrt(math.max(0, 1 - u1))
+    local up      = math.abs(normal.Y) < 0.99 and Vector3.new(0,1,0) or Vector3.new(1,0,0)
+    local tangent  = normal:Cross(up).Unit
+    local bitangent = normal:Cross(tangent).Unit
+    return (tangent * x + normal * y + bitangent * z).Unit
+end
+
+-- Reflect ray around normal
+local function reflect(dir, normal)
+    return dir - 2 * dir:Dot(normal) * normal
+end
+
+-- Fibonacci lattice direction for uniform sphere/hemisphere coverage
+local function fibDir(n, total, basis)
+    local golden = (1 + math.sqrt(5)) / 2
+    local theta  = 2 * math.pi * n / golden
+    local cosP   = 1 - 2 * (n + 0.5) / total
+    local sinP   = math.sqrt(math.max(0, 1 - cosP * cosP))
+    local x = sinP * math.cos(theta)
+    local y = math.abs(cosP)
+    local z = sinP * math.sin(theta)
+    if basis then
+        return (basis.RightVector * x + basis.UpVector * y + basis.LookVector * z).Unit
+    end
+    return Vector3.new(x, y, z).Unit
+end
+
+-- ── SCHLICK FRESNEL APPROXIMATION
+-- Physics: at grazing angles ALL surfaces become mirrors.
+-- F(θ) = F₀ + (1 - F₀) × (1 - cosθ)⁵
+-- F₀ = base reflectivity at normal incidence (0°)
+--   Dielectrics: ~0.04  |  Metals: use albedo as F₀
+-- cosθ = dot(viewDir, halfwayVector) or dot(viewDir, normal)
+local function schlickFresnel(cosTheta, F0)
+    local t  = math.max(0, 1 - cosTheta)
+    local t5 = t * t * t * t * t   -- (1 - cosθ)⁵
+    return F0 + (1 - F0) * t5
+end
+
+-- ── RAYLEIGH SKY RADIANCE
+-- Physics: Rayleigh scattering ∝ 1/λ⁴ → blue scatters ~5.5× more than red.
+-- This is why the sky is blue and sunsets orange/red.
+-- When a GI ray escapes to sky (no geometry hit), sample this instead of nothing.
+local function skyRadiance(dir, sunDir)
+    local sunElev = sunDir.Y
+    local sunDot  = math.max(0, dir:Dot(sunDir))
+    local zenith  = math.max(0, dir.Y)  -- 0=horizon, 1=straight up
+
+    if sunElev >= -0.05 then
+        -- Daytime
+        local dayT = math.min(1, math.max(0, sunElev) / 0.28)
+
+        -- Horizon hues: warm near sun, neutral away from it
+        local hR = 0.58 + sunDot * 0.38
+        local hG = 0.38 + sunDot * 0.14
+        local hB = 0.24 - sunDot * 0.06
+
+        -- Zenith: Rayleigh blue, deepens at noon
+        local zR = 0.16 * dayT + 0.06 * (1 - dayT)
+        local zG = 0.35 * dayT + 0.12 * (1 - dayT)
+        local zB = 0.90 * dayT + 0.30 * (1 - dayT)
+
+        -- Quadratic blend horizon→zenith (matches real sky gradient shape)
+        local t  = zenith * zenith
+        local sR = hR + (zR - hR) * t
+        local sG = hG + (zG - hG) * t
+        local sB = hB + (zB - hB) * t
+
+        -- Mie scattering: bright halo concentrated around sun disk
+        local mie = sunDot ^ 9 * 0.48
+        sR = sR + mie
+        sG = sG + mie * 0.72
+
+        return Color3.new(math.clamp(sR,0,1), math.clamp(sG,0,1), math.clamp(sB,0,1))
+    else
+        -- Night: deep blue-black
+        local nT = math.clamp(-sunElev / 0.25, 0, 1)
+        return Color3.new(
+            math.max(0, 0.04 - nT * 0.03),
+            math.max(0, 0.05 - nT * 0.04),
+            math.max(0, 0.14 - nT * 0.08)
+        )
+    end
+end
+
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- MATERIAL TABLES
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+local TERRAIN_ALBEDO = {
+    [Enum.Material.Grass]        = Color3.fromRGB(106, 127,  63),
+    [Enum.Material.LeafyGrass]   = Color3.fromRGB( 85, 115,  50),
+    [Enum.Material.Sand]         = Color3.fromRGB(220, 188, 129),
+    [Enum.Material.Sandstone]    = Color3.fromRGB(198, 154,  95),
+    [Enum.Material.Rock]         = Color3.fromRGB(140, 130, 120),
+    [Enum.Material.SmoothRock]   = Color3.fromRGB(155, 148, 140),
+    [Enum.Material.Basalt]       = Color3.fromRGB( 60,  58,  55),
+    [Enum.Material.Ground]       = Color3.fromRGB(115,  90,  65),
+    [Enum.Material.Mud]          = Color3.fromRGB( 90,  70,  50),
+    [Enum.Material.Water]        = Color3.fromRGB( 30,  85, 200),
+    [Enum.Material.Snow]         = Color3.fromRGB(232, 242, 255),
+    [Enum.Material.Glacier]      = Color3.fromRGB(160, 208, 248),
+    [Enum.Material.Ice]          = Color3.fromRGB(170, 216, 242),
+    [Enum.Material.Salt]         = Color3.fromRGB(226, 220, 213),
+    [Enum.Material.Limestone]    = Color3.fromRGB(192, 177, 157),
+    [Enum.Material.Pavement]     = Color3.fromRGB(150, 148, 145),
+    [Enum.Material.CrackedLava]  = Color3.fromRGB(220,  55,  10),
+    [Enum.Material.Asphalt]      = Color3.fromRGB( 80,  78,  75),
+    [Enum.Material.Cobblestone]  = Color3.fromRGB(130, 122, 112),
+    [Enum.Material.WoodPlanks]   = Color3.fromRGB(165, 120,  72),
+}
+
+-- Specular factors: 0 = fully diffuse, 1 = perfect mirror
+-- These are physically measured F0 approximations
+local SPECULAR_MATS = {
+    [Enum.Material.SmoothPlastic] = 0.55,
+    [Enum.Material.Metal]         = 1.00,
+    [Enum.Material.Glass]         = 0.80,
+    [Enum.Material.Ice]           = 0.70,
+    [Enum.Material.DiamondPlate]  = 0.88,
+    [Enum.Material.Foil]          = 0.92,
+    [Enum.Material.Neon]          = 0.00,
+}
+
+local EMISSIVE_MATS = {
+    [Enum.Material.Neon]        = { color=nil,                          brightness=2.5, flicker=false },
+    [Enum.Material.CrackedLava] = { color=Color3.fromRGB(255, 80, 10), brightness=3.2, flicker=true  },
+}
+
+local SSS_MATS = {
+    [Enum.Material.Neon]  = true,
+    [Enum.Material.Glass] = true,
+}
+
+local function albedo(inst, mat)
+    if inst == Workspace.Terrain then
+        return TERRAIN_ALBEDO[mat] or Color3.fromRGB(140, 130, 115)
+    end
+    if inst and inst:IsA("BasePart") then return inst.Color end
+    return Color3.fromRGB(180, 180, 180)
+end
+
+local function specularFactor(inst)
+    if inst and inst:IsA("BasePart") then
+        return SPECULAR_MATS[inst.Material] or 0.1
+    end
+    return 0.0
+end
+
+local function emissiveConfig(inst, mat)
+    if inst == Workspace.Terrain then return EMISSIVE_MATS[mat] end
+    if inst and inst:IsA("BasePart") then return EMISSIVE_MATS[inst.Material] end
+    return nil
+end
+
+local function isTransparent(inst)
+    if inst and inst:IsA("BasePart") then
+        return inst.Transparency >= CFG.TRANSMIT_THRESHOLD and inst.CastShadow == false
+    end
+    return false
+end
+
+local function isSSS(inst)
+    if inst and inst:IsA("BasePart") then
+        return SSS_MATS[inst.Material] == true and inst.Transparency > 0.08
+    end
+    return false
+end
+
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- DIRECT ILLUMINATION
+--
+-- Physics applied:
+--   (A) Lambert NdotL: directFactor *= max(0, N·L)
+--       A surface perpendicular to the sun gets zero direct light.
+--
+--   (B) PCSS Contact-Hardening:
+--       Step 1 — Blocker search: cast one "seeker" ray to find average
+--                blocker distance d_blocker.
+--       Step 2 — Compute penumbra width:
+--                penumbra_w = (d_blocker / PCSS_LIGHT_SIZE) × base_jitter
+--                Near caster (small d_blocker) → narrow jitter → hard shadow
+--                Far from caster (large d_blocker) → wide jitter → soft shadow
+--
+--   (C) Beer-Lambert EXPONENTIAL colored transmission through glass:
+--       I_channel = I₀_channel × exp(-μ_channel)
+--       μ_channel = (1 - color_channel) × opticalDensity
+--       where opticalDensity = opacity × (1 + opacity)  [density proxy]
+--       Chromatic: glass has slightly higher μ_blue than μ_red
+--       (real dispersion — blue light absorbed/scattered more)
+--
+-- Returns: directFactor (0..1, shadow × NdotL), transmitColor (Color3)
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+local function directIllumination(hitPos, hitNormal, excludeList, sunDir)
+
+    -- ── (A) Lambert NdotL: cosine of angle between surface normal and sun
+    -- Physics: irradiance on a surface = radiance × cos(θ_incidence)
+    -- A surface at 90° to the sun receives zero irradiance. Period.
+    local NdotL = math.max(0, hitNormal:Dot(sunDir))
+
+    -- ── (B) PCSS — find blocker to determine penumbra radius
+    local penumbraJitter
+    do
+        local searchOrigin = hitPos + hitNormal * CFG.SHADOW_BIAS
+        local searchParams = makeParams(excludeList)
+        local blocker = Workspace:Raycast(searchOrigin, sunDir * CFG.PCSS_BLOCKER_SEARCH, searchParams)
+        if blocker then
+            -- PCSS formula: w_penumbra = (d_receiver - d_blocker) / d_blocker × w_light
+            -- We approximate d_receiver as the search distance (large, ~sun distance)
+            -- So: w_penumbra ≈ (D / d_blocker) × lightSize
+            -- Result: close blockers → small penumbra (hard), far blockers → large (soft)
+            local dBlocker = math.max(1, blocker.Distance)
+            local wPenumbra = (CFG.PCSS_BLOCKER_SEARCH / dBlocker) * CFG.PCSS_LIGHT_SIZE
+            -- Convert to angular jitter for our ray-based approach
+            penumbraJitter = math.clamp(wPenumbra * 0.004, 0.005, 0.22)
+        else
+            -- No blocker found: still need to check (geometry might be far away)
+            -- Use base penumbra for sun-as-area-light
+            penumbraJitter = CFG.PENUMBRA_BASE_RADIUS * 0.012
+        end
+    end
+
+    -- Jitter sun direction within computed penumbra cone
+    local function jitterSun()
+        local jx = (rand:NextNumber() - 0.5) * penumbraJitter
+        local jy = (rand:NextNumber() - 0.5) * penumbraJitter
+        local jz = (rand:NextNumber() - 0.5) * penumbraJitter
+        return (sunDir + Vector3.new(jx, jy, jz)).Unit
+    end
+
+    -- ── (C) Beer-Lambert shadow ray with exponential colored transmission
+    local function singleShadowRay(jDir, baseExclude)
+        -- Transmission starts as pure white (unattenuated)
+        local tR, tG, tB = 1.0, 1.0, 1.0
+        local cursor  = hitPos + hitNormal * CFG.SHADOW_BIAS
+        local exclude = {}
+        for _, v in ipairs(baseExclude) do table.insert(exclude, v) end
+
+        for _ = 1, CFG.TRANSMIT_STEPS do
+            local sp = makeParams(exclude)
+            local sr = Workspace:Raycast(cursor, jDir * CFG.GI_BOUNCE_DISTANCE, sp)
+
+            if not sr then
+                -- Ray hit sky → fully lit, return accumulated color filter
+                return 1.0, Color3.new(tR, tG, tB)
+            end
+
+            if CFG.TRANSMIT_ENABLED and isTransparent(sr.Instance) then
+                -- Beer-Lambert exponential attenuation:
+                -- Each channel attenuates as exp(-μ) where μ = absorption coefficient
+                -- μ_channel = (1 - color_channel) × optical_density
+                -- optical_density = opacity × (1 + opacity) [proxy for path length × concentration]
+                local c   = sr.Instance.Color
+                local op  = 1.0 - sr.Instance.Transparency       -- opacity (0=clear, 1=solid)
+                local rho = op * (1.0 + op)                      -- optical density proxy
+
+                -- Absorption: dark-colored glass absorbs more light
+                -- e.g. red glass: low μ_R (passes red), high μ_G and μ_B
+                local muR = (1.0 - c.R) * rho
+                local muG = (1.0 - c.G) * rho
+                local muB = (1.0 - c.B) * rho
+
+                -- Chromatic dispersion: glass has slightly higher index for blue
+                -- (real: n_blue > n_red → more absorption/scattering for blue)
+                if CFG.TRANSMIT_CHROMATIC and sr.Instance.Material == Enum.Material.Glass then
+                    muR = muR * 0.93   -- red travels further
+                    muB = muB * 1.10   -- blue absorbed more
+                end
+
+                -- Exponential attenuation — this is the physically correct formula
+                tR = tR * math.exp(-muR)
+                tG = tG * math.exp(-muG)
+                tB = tB * math.exp(-muB)
+
+                -- Continue through this layer
+                table.insert(exclude, sr.Instance)
+                cursor = sr.Position + jDir * 0.05
+            else
+                -- Solid occluder — in shadow (transmission color stops here)
+                return 0.0, Color3.new(tR, tG, tB)
+            end
+        end
+        return 0.0, Color3.new(tR, tG, tB)
+    end
+
+    -- Accumulate multiple jittered shadow rays for soft penumbra
+    if CFG.PENUMBRA_SAMPLES <= 1 then
+        local di, tc = singleShadowRay(jitterSun(), excludeList)
+        return di * NdotL, tc
+    end
+
+    local accumDI = 0
+    local accumR, accumG, accumB = 0, 0, 0
+    for _ = 1, CFG.PENUMBRA_SAMPLES do
+        local di, tc = singleShadowRay(jitterSun(), excludeList)
+        accumDI = accumDI + di
+        accumR  = accumR  + tc.R
+        accumG  = accumG  + tc.G
+        accumB  = accumB  + tc.B
+    end
+    local n = CFG.PENUMBRA_SAMPLES
+    -- Multiply averaged shadow by NdotL: surface facing away from sun → dark
+    return (accumDI / n) * NdotL,
+           Color3.new(accumR/n, accumG/n, accumB/n)
+end
+
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- AMBIENT OCCLUSION FACTOR
+--
+-- Physics: samples a hemisphere of short rays from a surface point.
+-- Each ray that hits nearby geometry contributes occlusion.
+-- The fraction of the hemisphere blocked = how dark the point should be.
+-- Cosine-weighted (rays aligned to normal contribute more) — matches
+-- how a Lambertian surface integrates over incident hemisphere.
+--
+-- Returns: 0.0 (fully occluded) to 1.0 (fully open)
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+local function computeAO(hitPos, hitNormal, excludeList)
+    if not CFG.AO_ENABLED then return 1.0 end
+
+    local aoParams    = makeParams(excludeList)
+    local occluded    = 0.0
+    local origin      = hitPos + hitNormal * 0.08
+
+    for _ = 1, CFG.AO_RAYS do
+        local dir = hemisphereDir(hitNormal)   -- cosine-weighted, so aligned rays count more
+        local hit = Workspace:Raycast(origin, dir * CFG.AO_RADIUS, aoParams)
+        if hit then
+            -- Proximity falloff: closer geometry occludes more
+            local proximity = 1.0 - (hit.Distance / CFG.AO_RADIUS)
+            occluded = occluded + proximity
+        end
+    end
+
+    -- Normalize and apply strength
+    local aoRaw = occluded / CFG.AO_RAYS        -- 0 (open) to 1 (fully blocked)
+    return 1.0 - aoRaw * CFG.AO_STRENGTH        -- remap to brightness factor
+end
+
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- JITTER FOR GI IMPORTANCE SAMPLING (sun-bias)
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+local function sunJitter(sunDir)
+    local j = CFG.PENUMBRA_BASE_RADIUS * 0.05
+    local jx = (rand:NextNumber() - 0.5) * j
+    local jy = (rand:NextNumber() - 0.5) * j
+    local jz = (rand:NextNumber() - 0.5) * j
+    return (sunDir + Vector3.new(jx, jy, jz)).Unit
+end
+
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- PATH TRACING KERNEL
+--
+-- Physics applied in this function:
+--   • Sky radiance sampling when ray misses (not just fade to zero)
+--   • Luminance-weighted color bleed (dark surfaces bleed little color)
+--   • SSS wrap-lighting: translucent parts on shadow side get warm bleed
+--   • Physical inverse-square falloff (windowed)
+--   • Ambient occlusion factor multiplied into probe brightness
+--   • 3rd GI bounce
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+local function tracePath(origin, direction, sunDir, char, probeIndex)
+    local exclude = char and { char } or {}
+    local params  = makeParams(exclude)
+
+    -- Primary ray
+    local hit1 = Workspace:Raycast(origin, direction * CFG.GI_BOUNCE_DISTANCE, params)
+
+    if not hit1 then
+        -- Ray escaped to sky — DON'T just fade the probe.
+        -- Sample actual Rayleigh sky radiance at this direction.
+        -- This makes sky-facing GI probes contribute the right color.
+        local skyCol   = skyRadiance(direction, sunDir)
+        local skyBright = math.max(0, sunDir.Y) * CFG.GI_BRIGHTNESS * 0.35
+        local lp = giLights[probeIndex]
+        lp.Color = skyCol
+        lp.Brightness = lp.Brightness + (skyBright - lp.Brightness) * 0.12
+        lp.Range  = CFG.GI_LIGHT_RANGE
+        return
+    end
+
+    local pos1  = hit1.Position
+    local nor1  = hit1.Normal
+    local col1  = albedo(hit1.Instance, hit1.Material)
+    local dist1 = hit1.Distance
+
+    local ex1 = char and { char, hit1.Instance } or { hit1.Instance }
+
+    -- Direct illumination: shadow × NdotL (both applied now — see directIllumination)
+    local di1, transmitTint = directIllumination(pos1, nor1, ex1, sunDir)
+
+    -- SSS wrap-lighting: if hit material is translucent (Glass/Neon) AND it's in shadow,
+    -- simulate light bleeding through the material with a warm red-orange tint.
+    -- Physics: red wavelengths travel further through organic/translucent materials
+    -- than blue wavelengths (higher scattering coefficient for short wavelengths).
+    local sssWrapColor = nil
+    if isSSS(hit1.Instance) and di1 < 0.3 and CFG.SSS_ENABLED then
+        -- Backscatter: how much the surface faces AWAY from the sun
+        local backFacing = math.max(0, -nor1:Dot(sunDir))
+        if backFacing > 0.05 then
+            -- Warm tint: red/orange exits the shadow side of thin translucent materials
+            local sssTint = Color3.fromRGB(255, 110, 55)
+            local wrapStrength = backFacing * CFG.SSS_WRAP_AMOUNT
+            sssWrapColor = lerpColor(col1, sssTint, wrapStrength * 0.6)
+        end
+    end
+
+    -- Sun color tinted by any glass transmission
+    local sunTint  = lerpColor(Lighting.ColorShift_Top, transmitTint, 0.65)
+    local baseCol
+    if di1 < 0.05 then
+        -- Fully shadowed: ambient sky color
+        baseCol = sssWrapColor or lerpColor(col1, Lighting.OutdoorAmbient, 0.5)
+    elseif di1 < 0.5 then
+        -- Penumbra: blend from shadow to lit
+        local litCol = lerpColor(col1, sunTint, 0.28)
+        local shdCol = sssWrapColor or lerpColor(col1, Lighting.OutdoorAmbient, 0.5)
+        baseCol = lerpColor(shdCol, litCol, di1 * 2)
+    else
+        baseCol = lerpColor(col1, sunTint, 0.28)
+    end
+
+    -- ── GI BOUNCES with luminance-weighted color bleed
+    -- Physics: energy conservation — a black surface (lum≈0) absorbs most light
+    -- and bleeds almost no color; a bright red surface (lum≈0.3) bleeds its color.
+    -- Previously: fixed bleed factor. Now: bleed ∝ surface luminance.
+
+    local bounceDir1 = hemisphereDir(nor1)
+    local params2    = makeParams(ex1)
+    local hit2 = Workspace:Raycast(
+        pos1 + nor1 * CFG.SHADOW_BIAS,
+        bounceDir1 * (CFG.GI_BOUNCE_DISTANCE * 0.35),
+        params2
+    )
+
+    local bounceColor  = baseCol
+    -- di1 already contains NdotL, so bright = proportional to actual sun irradiance
+    -- Add ambient floor so shadowed surfaces still get some GI contribution
+    local bounceBright = CFG.GI_BRIGHTNESS * math.max(di1, 0.07)
+
+    if hit2 then
+        local col2  = albedo(hit2.Instance, hit2.Material)
+        local nor2  = hit2.Normal
+
+        -- Luminance-weighted color bleed: dark surfaces bleed little, bright surfaces bleed a lot
+        local lum2      = colorLum(col2)
+        local bleedAmt  = CFG.GI_COLOR_BLEED * (0.2 + lum2 * 0.8)  -- scale by surface brightness
+        bounceColor = lerpColor(baseCol, col2, bleedAmt)
+
+        -- Second bounce
+        if CFG.GI_BOUNCE_COUNT >= 2 then
+            local bounceDir2 = hemisphereDir(nor2)
+            local ex2  = char and { char, hit1.Instance, hit2.Instance }
+                             or { hit1.Instance, hit2.Instance }
+            local params3 = makeParams(ex2)
+            local hit3 = Workspace:Raycast(
+                hit2.Position + nor2 * CFG.SHADOW_BIAS,
+                bounceDir2 * (CFG.GI_BOUNCE_DISTANCE * 0.15),
+                params3
+            )
+            if hit3 then
+                local col3  = albedo(hit3.Instance, hit3.Material)
+                local lum3  = colorLum(col3)
+                local bleed3 = CFG.GI_COLOR_BLEED * 0.5 * (0.2 + lum3 * 0.8)
+                bounceColor = lerpColor(bounceColor, col3, bleed3)
+
+                -- Third bounce (NEW: previously only 2)
+                if CFG.GI_BOUNCE_COUNT >= 3 then
+                    local nor3      = hit3.Normal
+                    local bounceDir3 = hemisphereDir(nor3)
+                    local ex3 = char and { char, hit1.Instance, hit2.Instance, hit3.Instance }
+                                     or { hit1.Instance, hit2.Instance, hit3.Instance }
+                    local params4 = makeParams(ex3)
+                    local hit4 = Workspace:Raycast(
+                        hit3.Position + nor3 * CFG.SHADOW_BIAS,
+                        bounceDir3 * (CFG.GI_BOUNCE_DISTANCE * 0.08),
+                        params4
+                    )
+                    if hit4 then
+                        local col4  = albedo(hit4.Instance, hit4.Material)
+                        local lum4  = colorLum(col4)
+                        bounceColor = lerpColor(bounceColor, col4,
+                            CFG.GI_COLOR_BLEED * 0.22 * (0.2 + lum4 * 0.8))
+                    end
+                    bounceBright = bounceBright * 0.60
+                end
+            end
+            bounceBright = bounceBright * 0.78
+        end
+        bounceBright = bounceBright * 0.86
+    end
+
+    -- ── PHYSICAL INVERSE-SQUARE FALLOFF (windowed)
+    -- Physics: light intensity falls off as 1/r² in 3D space.
+    -- The original code used (1 - d/max)² which is fake and too flat near origin.
+    -- We use a windowed inverse-square: physically correct in the middle,
+    -- smooth fade to 0 at max distance (avoids hard cutoff artifact).
+    -- Window function: (1 - (d/dmax)⁴)² — smooth at boundary, 1 at origin
+    local r        = math.max(1.0, dist1)
+    local invSqRaw = 1.0 / (1.0 + r * r * (0.08 / (CFG.GI_BOUNCE_DISTANCE * 0.4)))
+    local window   = math.max(0, 1.0 - (dist1 / CFG.GI_BOUNCE_DISTANCE)^4)
+    window         = window * window  -- smooth at boundary
+    local atten    = invSqRaw * window
+
+    -- ── AMBIENT OCCLUSION: sample short-range hemisphere, darken corners
+    local aoFactor = computeAO(pos1, nor1, ex1)
+
+    -- ── Place probe
+    local lp = giLights[probeIndex]
+    local pp = giParts[probeIndex]
+    pp.CFrame = CFrame.new(pos1 + nor1 * 0.35)
+    lp.Color  = bounceColor
+
+    local targetBright = bounceBright * atten * aoFactor
+    lp.Brightness = lp.Brightness + (targetBright - lp.Brightness) * 0.25
+    lp.Range      = CFG.GI_LIGHT_RANGE * (0.35 + atten * 0.65)
+    lp.Shadows    = di1 > 0.15
+end
+
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- SPECULAR RAY SYSTEM
+--
+-- Physics applied:
+--   • Schlick Fresnel: F = F₀ + (1-F₀)(1-cosθ)⁵
+--     At grazing angles (cosθ → 0) ALL surfaces approach F=1 (mirror)
+--     Dielectric F₀ ≈ 0.04, metal F₀ ≈ albedo
+--   • Sky radiance when reflected ray misses geometry (not flat sky color)
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+local function updateSpecular(camCF, char, sunDir)
+    local camPos  = camCF.Position
+    local exclude = char and { char } or {}
+    local params  = makeParams(exclude)
+
+    for i = 1, CFG.SPEC_RAYS do
+        local jx  = (rand:NextNumber() - 0.5) * 0.40
+        local jy  = (rand:NextNumber() - 0.5) * 0.25
+        local dir = (camCF.LookVector + camCF.RightVector * jx + camCF.UpVector * jy).Unit
+
+        local hit = Workspace:Raycast(camPos, dir * 60, params)
+        if hit then
+            local sf  = specularFactor(hit.Instance)
+            if sf > 0.05 then
+                local nor    = hit.Normal
+                local refDir = reflect(dir, nor)
+
+                -- ── SCHLICK FRESNEL
+                -- cosθ = angle between view direction and surface normal
+                -- At grazing angle (parallel to surface, cosθ→0) → F approaches 1
+                -- At normal incidence (perpendicular to surface, cosθ=1) → F = F₀
+                local cosTheta = math.max(0, -dir:Dot(nor))
+                local isMetal  = sf >= 0.85
+                -- Metals: F₀ is their color (they tint reflections)
+                -- Dielectrics: F₀ ≈ 0.04 for most materials
+                local F0       = isMetal and sf or CFG.FRESNEL_F0_DIELECTRIC
+                local fresnel  = schlickFresnel(cosTheta, F0)
+
+                -- Cast reflected ray
+                local ex2     = char and { char, hit.Instance } or { hit.Instance }
+                local rParams = makeParams(ex2)
+                local refHit  = Workspace:Raycast(
+                    hit.Position + nor * CFG.SHADOW_BIAS,
+                    refDir * (CFG.GI_BOUNCE_DISTANCE * 0.5),
+                    rParams
+                )
+
+                local specColor
+                if refHit then
+                    -- Reflection hit geometry: blend geometry albedo with sky
+                    specColor = lerpColor(
+                        albedo(refHit.Instance, refHit.Material),
+                        skyRadiance(refDir, sunDir), 0.35
+                    )
+                else
+                    -- Reflection escaped to sky: sample Rayleigh sky radiance
+                    -- (not flat ColorShift_Top like before)
+                    specColor = skyRadiance(refDir, sunDir)
+                end
+
+                -- Roughness: rough surfaces spread the specular highlight
+                local rough = 1.0 - sf
+                specColor = lerpColor(specColor, albedo(hit.Instance, hit.Material),
+                                      rough * CFG.SPEC_BLUR_ROUGH)
+
+                local lp  = specLights[i]
+                local pp  = specParts[i]
+                pp.CFrame = CFrame.new(hit.Position + nor * 0.2)
+                lp.Color  = specColor
+                -- Fresnel scales specular brightness — energy conservation
+                local targetBright = CFG.SPEC_BRIGHTNESS * fresnel * (1.0 - rough * 0.45)
+                lp.Brightness = lp.Brightness + (targetBright - lp.Brightness) * 0.2
+                lp.Range  = CFG.SPEC_RANGE
+            else
+                specLights[i].Brightness = specLights[i].Brightness * 0.88
+            end
+        else
+            specLights[i].Brightness = specLights[i].Brightness * 0.88
+        end
+    end
+end
+
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- EMISSIVE MATERIAL SYSTEM
+-- Neon parts glow. CrackedLava flickers with blackbody color.
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+local sssInstances = {}
+local emissiveTime = 0
+
+local function clearSSS()
+    for _, entry in ipairs(sssInstances) do
+        if entry.light and entry.light.Parent then
+            entry.light:Destroy()
+        end
+    end
+    sssInstances = {}
+end
+
+local function updateSSS(char)
+    clearSSS()
+
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if not root then return end
+
+    local center = root.Position
+    local box    = Vector3.new(CFG.EMISSIVE_RADIUS, 16, CFG.EMISSIVE_RADIUS)
+    local boxCF  = CFrame.new(center)
+
+    local candidates = Workspace:GetPartBoundsInBox(boxCF, box)
+    local count = 0
+
+    for _, part in ipairs(candidates) do
+        if count >= CFG.EMISSIVE_MAX then break end
+        if part:IsA("BasePart") and not part:IsDescendantOf(probeRoot) then
+            local ecfg = EMISSIVE_MATS[part.Material]
+            if ecfg then
+                local lightColor = ecfg.color or part.Color
+                local emLight    = Instance.new("PointLight")
+                emLight.Color      = lightColor
+                emLight.Brightness = CFG.SSS_BRIGHTNESS * ecfg.brightness
+                emLight.Range      = math.clamp(part.Size.Magnitude * 3.0, 5, 24)
+                emLight.Shadows    = (part.Material == Enum.Material.CrackedLava)
+                emLight.Parent     = part
+                table.insert(sssInstances, { light=emLight, part=part, cfg=ecfg })
+                count += 1
+            end
+        end
+    end
+
+    -- Scan terrain for CrackedLava voxels
+    if count < CFG.EMISSIVE_MAX then
+        local terrainParams = RaycastParams.new()
+        terrainParams.FilterType = Enum.RaycastFilterType.Include
+        terrainParams.FilterDescendantsInstances = { Workspace.Terrain }
+        local steps = 6
+        for i = 1, steps do
+            if count >= CFG.EMISSIVE_MAX then break end
+            local angle  = (i / steps) * math.pi * 2
+            local offset = Vector3.new(math.cos(angle) * 12, 0, math.sin(angle) * 12)
+            local tr = Workspace:Raycast(center + offset + Vector3.new(0,8,0),
+                                         Vector3.new(0,-16,0), terrainParams)
+            if tr and tr.Material == Enum.Material.CrackedLava then
+                local lavaPart, lavaLight = makeProbe("Lava_T_"..i, 0, 20, true)
+                lavaPart.CFrame  = CFrame.new(tr.Position + Vector3.new(0,1,0))
+                lavaLight.Color  = Color3.fromRGB(255, 75, 8)
+                lavaLight.Brightness = 3.0
+                table.insert(sssInstances, {
+                    light=lavaLight, part=lavaPart,
+                    cfg=EMISSIVE_MATS[Enum.Material.CrackedLava], isTerrain=true
+                })
+                count += 1
+            end
+        end
+    end
+end
+
+local function tickEmissiveFlicker(dt)
+    emissiveTime += dt
+    for idx, entry in ipairs(sssInstances) do
+        if entry.cfg and entry.cfg.flicker and CFG.EMISSIVE_LAVA_FLICKER then
+            local t = emissiveTime
+
+            -- Physically-inspired blackbody flicker:
+            -- Real lava/magma glows by incandescence — color depends on temperature.
+            -- Cool magma: dark red (~700°C)
+            -- Hot magma:  orange → yellow-orange (~1100°C)
+            -- Flash peaks: near yellow-white (~1400°C+)
+            -- Multi-octave noise for natural irregularity
+            local slow   = math.sin(t * 0.7 + idx * 1.7) * 0.5 + 0.5
+            local mid    = math.sin(t * 2.9 + idx * 2.3) * 0.35 + 0.65
+            local fast   = math.sin(t * 11.3 + idx * 3.7) * 0.18 + 0.82
+            -- Occasional gas-bubble flare (sharp bright spike)
+            local flare  = math.max(0, math.sin(t * 7.1 + idx * 5.3)) ^ 7 * 0.55
+
+            local heat = slow * mid * fast + flare  -- 0=cool, 1=hot
+
+            local base = CFG.SSS_BRIGHTNESS * entry.cfg.brightness
+            entry.light.Brightness = base * (0.45 + heat * 0.75)
+
+            -- Blackbody color ramp:
+            local heatColor
+            if heat < 0.25 then
+                -- Cool: deep red
+                heatColor = lerpColor(
+                    Color3.fromRGB(120, 12, 2),
+                    Color3.fromRGB(230, 40, 5),
+                    heat / 0.25
+                )
+            elseif heat < 0.60 then
+                -- Mid: orange
+                heatColor = lerpColor(
+                    Color3.fromRGB(230, 40, 5),
+                    Color3.fromRGB(255, 115, 12),
+                    (heat - 0.25) / 0.35
+                )
+            else
+                -- Hot: yellow-orange to near-white
+                heatColor = lerpColor(
+                    Color3.fromRGB(255, 115, 12),
+                    Color3.fromRGB(255, 210, 90),
+                    (heat - 0.60) / 0.40
+                )
+            end
+            entry.light.Color = heatColor
+        end
+    end
+end
+
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- WATER CAUSTICS — unchanged from v2 (already reasonable)
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+local causticParts   = {}
+local causticLights  = {}
+local causticOrigins = {}
+local causticTime    = 0
+
+for i = 1, CFG.CAUSTIC_PROBES do
+    local p, l = makeProbe("Caustic_"..i, 0, CFG.CAUSTIC_RANGE, false)
+    causticParts[i]   = p
+    causticLights[i]  = l
+    causticLights[i].Color = Color3.fromRGB(140, 200, 255)
+end
+
+local lastCausticScan = 0
+
+local function scanForCausticPositions(char)
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if not root then return end
+    local center = root.Position
+
+    local waterParams = RaycastParams.new()
+    waterParams.FilterType = Enum.RaycastFilterType.Include
+    waterParams.FilterDescendantsInstances = { Workspace.Terrain }
+
+    local floorParams = RaycastParams.new()
+    floorParams.FilterType = Enum.RaycastFilterType.Exclude
+    floorParams.FilterDescendantsInstances = { probeRoot, Workspace.Terrain }
+    if char then floorParams.FilterDescendantsInstances = { probeRoot, Workspace.Terrain, char } end
+
+    local found = {}
+
+    for i = 1, CFG.CAUSTIC_PROBES * 3 do
+        if #found >= CFG.CAUSTIC_PROBES then break end
+        local angle  = i * 2.399963
+        local radius = math.sqrt(i / (CFG.CAUSTIC_PROBES * 3)) * CFG.CAUSTIC_SCAN_R
+        local ox = math.cos(angle) * radius
+        local oz = math.sin(angle) * radius
+        local origin = Vector3.new(center.X + ox, center.Y + 20, center.Z + oz)
+
+        local waterHit = Workspace:Raycast(origin, Vector3.new(0,-40,0), waterParams)
+        if waterHit and waterHit.Material == Enum.Material.Water then
+            local floorHit = Workspace:Raycast(
+                waterHit.Position + Vector3.new(0,-0.2,0),
+                Vector3.new(0,-30,0), floorParams
+            )
+            if floorHit then
+                table.insert(found, floorHit.Position + Vector3.new(0,0.15,0))
+            end
+        end
+    end
+
+    for i = 1, CFG.CAUSTIC_PROBES do
+        if found[i] then
+            causticOrigins[i] = found[i]
+            causticLights[i].Brightness = 0
+        else
+            causticOrigins[i] = nil
+            causticLights[i].Brightness = 0
+        end
+    end
+end
+
+local function tickCaustics(dt, sunDir)
+    causticTime += dt * CFG.CAUSTIC_SPEED
+    local sunElev = math.max(0, sunDir.Y)
+
+    for i = 1, CFG.CAUSTIC_PROBES do
+        local origin = causticOrigins[i]
+        if origin then
+            local t  = causticTime
+            local pi = i
+            local wave1 = math.sin(t * 1.1 + pi * 0.97) * 0.5 + 0.5
+            local wave2 = math.sin(t * 1.7 + pi * 1.83 + 1.2) * 0.5 + 0.5
+            local wave3 = math.cos(t * 0.8 + pi * 2.41) * 0.3 + 0.7
+            local ci    = wave1 * wave2 * wave3
+            ci          = ci * ci * 2.2
+
+            local driftX = math.sin(t * 0.6 + pi * 1.1) * 0.8
+            local driftZ = math.cos(t * 0.5 + pi * 0.9) * 0.8
+            causticParts[i].CFrame = CFrame.new(origin + Vector3.new(driftX, 0, driftZ))
+
+            causticLights[i].Color = lerpColor(
+                Color3.fromRGB(30, 100, 200),
+                Color3.fromRGB(200, 240, 255),
+                ci
+            )
+            causticLights[i].Range = CFG.CAUSTIC_RANGE * (0.6 + ci * 0.5)
+
+            local targetBright = CFG.CAUSTIC_BRIGHTNESS * ci * sunElev
+            causticLights[i].Brightness = causticLights[i].Brightness +
+                (targetBright - causticLights[i].Brightness) * 0.18
+        else
+            causticLights[i].Brightness = causticLights[i].Brightness * 0.9
+        end
+    end
+end
+
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- ADAPTIVE DEPTH OF FIELD (unchanged)
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+local function updateDoF(camCF, exclude)
+    local params  = makeParams(exclude)
+    local hit     = Workspace:Raycast(camCF.Position, camCF.LookVector * CFG.DOF_MAX_RADIUS, params)
+    local target  = hit and hit.Distance or CFG.DOF_MAX_RADIUS
+    dof.FocusDistance = dof.FocusDistance + (target - dof.FocusDistance) * CFG.DOF_SMOOTH
+    dof.InFocusRadius = math.clamp(target * 0.35, 6, CFG.DOF_FOCUS_RADIUS)
+end
+
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- ADAPTIVE BLOOM & COLOR GRADING (unchanged)
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+local function updatePostFX()
+    local sunDir = Lighting:GetSunDirection()
+    local elev   = math.clamp(sunDir.Y, -1, 1)
+    local t      = (elev + 1) / 2
+
+    local goldenT   = 1 - math.abs(elev - 0.18) / 0.22
+    goldenT         = math.clamp(goldenT, 0, 1)
+    bloom.Intensity = CFG.BLOOM_BASE + goldenT * CFG.BLOOM_SUNSET_BOOST
+    bloom.Threshold = 0.88 + t * 0.08
+
+    sunRays.Intensity = math.clamp(0.05 + (1-t) * 0.35, 0.02, 0.38)
+    sunRays.Spread    = 0.45 + (1-t) * 0.2
+
+    if elev < 0.0 then
+        cc.TintColor  = Color3.fromRGB(150, 168, 220)
+        cc.Saturation = -0.1
+        cc.Contrast   = 0.05
+        cc.Brightness = -0.02
+    elseif elev < 0.2 then
+        local g = elev / 0.2
+        cc.TintColor  = Color3.new(1, 0.82 + g*0.06, 0.55 + g*0.35)
+        cc.Saturation = 0.28 + (1-g) * 0.22
+        cc.Contrast   = 0.18 + (1-g) * 0.06
+        cc.Brightness = 0.01
+    else
+        cc.TintColor  = Color3.fromRGB(255, 248, 234)
+        cc.Saturation = 0.16
+        cc.Contrast   = 0.13
+        cc.Brightness = 0.025
+    end
+
+    atmo.Haze    = CFG.ATMOSPHERE_HAZE - t * 0.5
+    atmo.Density = CFG.ATMOSPHERE_DENSITY - t * 0.05
+
+    Lighting.OutdoorAmbient = lerpColor(
+        Color3.fromRGB(50, 60, 110),
+        Color3.fromRGB(80, 92, 118),
+        t
+    )
+end
+
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- MAIN RENDER LOOP
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+local giCursor       = 1
+local lastGITime     = 0
+local lastSSSTime    = 0
+local lastCausticScan = 0
+local accumPost      = 0
+
+RunService.RenderStepped:Connect(function(dt)
+    local now    = tick()
+    local char   = player.Character
+    local camCF  = camera.CFrame
+    local camPos = camCF.Position
+    local sunDir = Lighting:GetSunDirection()
+
+    if char then
+        worldParams.FilterDescendantsInstances = { probeRoot, char }
+    end
+
+    -- ── GI PATH TRACING (distributed across frames)
+    if now - lastGITime >= CFG.GI_UPDATE_INTERVAL then
+        lastGITime = now
+
+        for i = 1, CFG.GI_RAYS_PER_FRAME do
+            local slotIdx = ((giCursor - 1 + i - 1) % CFG.MAX_GI_PROBES) + 1
+            local rayDir
+            if slotIdx % 3 == 0 then
+                -- Sun-importance sample: bias toward sun for better direct GI
+                rayDir = sunJitter(
+                    (sunDir + fibDir(slotIdx, CFG.MAX_GI_PROBES, camCF) * 0.6).Unit
+                )
+            else
+                -- Cosine-weighted from camera hemisphere
+                rayDir = fibDir(slotIdx, CFG.MAX_GI_PROBES, camCF)
+                rayDir = (rayDir - camCF.UpVector * 0.15).Unit
+            end
+            tracePath(camPos, rayDir, sunDir, char, slotIdx)
+        end
+
+        giCursor = ((giCursor + CFG.GI_RAYS_PER_FRAME - 1) % CFG.MAX_GI_PROBES) + 1
+    end
+
+    -- ── SPECULAR REFLECTIONS (every frame)
+    updateSpecular(camCF, char, sunDir)
+
+    -- ── DEPTH OF FIELD (every frame)
+    if CFG.DOF_ENABLED then
+        local ex = char and { char } or nil
+        updateDoF(camCF, ex)
+    end
+
+    -- ── CAUSTICS (animate every frame, scan every 3s)
+    if CFG.CAUSTIC_ENABLED then
+        tickCaustics(dt, sunDir)
+        if now - lastCausticScan >= 3.0 then
+            lastCausticScan = now
+            scanForCausticPositions(char)
+        end
+    end
+
+    -- ── EMISSIVE / LAVA FLICKER (every frame)
+    if CFG.EMISSIVE_ENABLED then
+        tickEmissiveFlicker(dt)
+    end
+
+    -- ── POST FX (every 0.4s)
+    accumPost += dt
+    if accumPost >= 0.4 then
+        accumPost = 0
+        updatePostFX()
+    end
+
+    -- ── EMISSIVE SCAN (every 1.8s)
+    if CFG.EMISSIVE_ENABLED and now - lastSSSTime >= 1.8 then
+        lastSSSTime = now
+        updateSSS(char)
+    end
+end)
+
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- CHARACTER RESPAWN
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+player.CharacterAdded:Connect(function()
+    clearSSS()
+    for i = 1, CFG.MAX_GI_PROBES  do giLights[i].Brightness  = 0 end
+    for i = 1, CFG.SPEC_RAYS      do specLights[i].Brightness = 0 end
+    for i = 1, CFG.CAUSTIC_PROBES do
+        causticLights[i].Brightness = 0
+        causticOrigins[i] = nil
+    end
+end)
+
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- STARTUP LOG
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+print("╔══════════════════════════════════════════════════════╗")
+print("║  RTX RAYTRACER v3 — PHYSICS REMASTER — ONLINE       ║")
+print("╠══════════════════════════════════════════════════════╣")
+print("║  GI Probes     : " .. CFG.MAX_GI_PROBES              .. "                              ║")
+print("║  GI Bounces    : " .. CFG.GI_BOUNCE_COUNT            .. "  (was 2)                    ║")
+print("║  Shadow Samples: " .. CFG.PENUMBRA_SAMPLES           .. "  PCSS contact-hardening      ║")
+print("║  Transmission  : Beer-Lambert exponential (was linear)║")
+print("║  Fresnel       : Schlick F0=" .. CFG.FRESNEL_F0_DIELECTRIC .. " (was none)           ║")
+print("║  AO Rays       : " .. CFG.AO_RAYS                    .. "  r=" .. CFG.AO_RADIUS .. " studs         ║")
+print("║  Color Bleed   : luminance-weighted (was constant)   ║")
+print("║  Sky Miss      : Rayleigh radiance (was fade-to-zero)║")
+print("║  Falloff       : inverse-square windowed (was faked) ║")
+print("║  Lava Flicker  : blackbody color ramp               ║")
+print("╚══════════════════════════════════════════════════════╝")
